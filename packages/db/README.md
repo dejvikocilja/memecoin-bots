@@ -46,6 +46,9 @@ await migrateUp(pool);
 const open = await loadOpenPositions(pool); // everything the exit manager needs after a restart
 ```
 
+Risk profiles are seeded and editable through the local CLI and transactional
+service; see [profile values, validation and editing](../../docs/risk/PROFILES.md).
+
 ## Tests
 
 The tests run against a real PostgreSQL database named in `TEST_DATABASE_URL`. Its name
