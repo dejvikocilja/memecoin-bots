@@ -11,6 +11,24 @@ permissions:
 jobs:
   check:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: memebots
+          POSTGRES_PASSWORD: memebots
+          POSTGRES_DB: memebots_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U memebots"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      TEST_DATABASE_URL: postgres://memebots:memebots@localhost:5432/memebots_test
+      # Fail instead of skipping if the database tests cannot run.
+      REQUIRE_DB_TESTS: '1'
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -29,3 +47,7 @@ jobs:
         run: pnpm typecheck
       - name: Tests
         run: pnpm test
+      - name: Migrations run from the command line
+        env:
+          DATABASE_URL: postgres://memebots:memebots@localhost:5432/memebots_test
+        run: pnpm db:migrate && pnpm db:status && pnpm db:rollback && pnpm db:migrate

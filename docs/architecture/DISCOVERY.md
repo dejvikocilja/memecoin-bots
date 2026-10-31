@@ -99,8 +99,9 @@ Overflow, exhausted retries, known-schema decode failures and unrecognized candi
 transactions increment counters and make health degraded. Disconnects permanently flag a
 possible gap for that listener instance. This listener does not backfill, guarantee lossless
 delivery, persist dedup across restarts or establish finality. Solana's public free service
-can throttle/drop subscriptions and offers no few-second SLA. BOT-5 persistence, historical
-catch-up and stronger provider guarantees remain separate work.
+can throttle/drop subscriptions and offers no few-second SLA. The BOT-5 database package
+now exists; listener persistence, historical catch-up and stronger provider guarantees
+remain separate work.
 
 ## Verification
 
