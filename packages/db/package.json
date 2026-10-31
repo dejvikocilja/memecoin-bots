@@ -18,9 +18,10 @@
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "migrate": "tsx --conditions=@memebots/source src/cli.ts"
+    "migrate": "tsx --env-file-if-exists=../../.env --conditions=@memebots/source src/cli.ts"
   },
   "dependencies": {
+    "@memebots/config": "workspace:*",
     "@memebots/core": "workspace:*",
     "pg": "^8.23.1"
   },

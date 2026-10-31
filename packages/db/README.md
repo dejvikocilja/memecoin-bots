@@ -16,7 +16,7 @@ pnpm db:rollback       # revert the newest migration
 pnpm db:rollback 3     # revert the newest three
 ```
 
-All three read `DATABASE_URL`. Never edit a migration that has been merged; add a new one.
+All three read `DATABASE_URL` from the root `.env` (or the environment) through the shared config loader from BOT-4, which only accepts a database on this computer and keeps the password out of the logs. Never edit a migration that has been merged; add a new one.
 
 ## Tables
 
