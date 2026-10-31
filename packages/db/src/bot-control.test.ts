@@ -2,7 +2,7 @@ import { spawn } from 'node:child_process';
 import type { Writable } from 'node:stream';
 import { fileURLToPath } from 'node:url';
 import { randomBytes, randomUUID } from 'node:crypto';
-import { mkdtemp, realpath, rm } from 'node:fs/promises';
+import { mkdtemp, realpath, rename, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeEach, describe, expect, it } from 'vitest';
@@ -114,6 +114,64 @@ describe.skipIf(!hasTestDatabase)('local bot control with genuine offline prepar
       await fresh.end();
     }
   });
+  it('preserves exact nonempty legacy JSON across rename/profile edits and rejects parameter loss', async () => {
+    for (const strategy of ['legacy_strategy', 'momentum']) {
+      const b = await bot(`Original ${strategy}`);
+      await pool.query(
+        `UPDATE bots SET strategy=$2,strategy_params='{"watchlist":["public-mint"],"lookbackMinutes":45,"precision":0.123456789012345678901234567890}'::jsonb WHERE id=$1`,
+        [b.id, strategy],
+      );
+      const before = await getControlledBot(pool, b.id),
+        stored = (
+          await pool.query('SELECT strategy_params::text value FROM bots WHERE id=$1', [b.id])
+        ).rows[0].value;
+      let current = await updateControlledBot(pool, b.id, {
+        name: `Renamed ${strategy}`,
+        strategy,
+        riskProfileId: 'conservative',
+        revision: before.revision,
+      });
+      expect(
+        (await pool.query('SELECT strategy_params::text value FROM bots WHERE id=$1', [b.id]))
+          .rows[0].value,
+      ).toBe(stored);
+      // Older panel clients may still send the empty placeholder; it must not erase saved configuration.
+      current = await updateControlledBot(pool, b.id, {
+        name: `Renamed twice ${strategy}`,
+        strategy,
+        riskProfileId: 'balanced',
+        strategyParams: {},
+        revision: current.revision,
+      });
+      expect(
+        (await pool.query('SELECT strategy_params::text value FROM bots WHERE id=$1', [b.id]))
+          .rows[0].value,
+      ).toBe(stored);
+      await expect(
+        updateControlledBot(pool, b.id, {
+          name: current.name,
+          strategy,
+          riskProfileId: 'balanced',
+          strategyParams: { newUnknownParameter: 1 },
+          revision: current.revision,
+        }),
+      ).rejects.toThrow('STRATEGY_PARAMETERS_UNAVAILABLE');
+      await expect(
+        updateControlledBot(pool, b.id, {
+          name: current.name,
+          strategy: 'sniper',
+          riskProfileId: 'balanced',
+          strategyParams: {},
+          revision: current.revision,
+        }),
+      ).rejects.toThrow('LEGACY_PARAMETERS_REQUIRE_OFFLINE_REVIEW');
+      expect(
+        (await pool.query('SELECT strategy_params::text value FROM bots WHERE id=$1', [b.id]))
+          .rows[0].value,
+      ).toBe(stored);
+      expect((await getControlledBot(pool, b.id)).revision).toBe(current.revision);
+    }
+  });
   it('serializes two claims and rolls back failed create without claiming wallet', async () => {
     const w = await prepared();
     const payload = {
@@ -165,6 +223,49 @@ describe.skipIf(!hasTestDatabase)('local bot control with genuine offline prepar
     await expect(prepareWallet(pool, { ...opts, label: 'different' })).rejects.toThrow(
       'RETRY_MISMATCH',
     );
+  });
+  it('never generates a replacement for missing committed vault material; restores and retries on max-one pool', async () => {
+    const single = createPool(TEST_DATABASE_URL, { max: 1, timeoutMs: 5000 });
+    try {
+      const id = randomUUID(),
+        opts = {
+          walletId: id,
+          label: 'Original identity',
+          spendCapLamports: 100n,
+          vault,
+          encryptionKey: key,
+        };
+      const original = await prepareWallet(single, opts),
+        dir = dirs.at(-1)!,
+        file = join(dir, 'vault', `${id}.vault.json`),
+        backup = join(dir, 'original-backup');
+      await rename(file, backup);
+      await expect(prepareWallet(single, opts)).rejects.toThrow('ORIGINAL_VAULT_RESTORE_REQUIRED');
+      expect(await vault.listIds()).toEqual([]);
+      expect(
+        (await pool.query('SELECT public_key FROM wallets WHERE id=$1', [id])).rows[0].public_key,
+      ).toBe(original.publicKey);
+      await rename(backup, file);
+      expect(await prepareWallet(single, opts)).toEqual(original);
+      expect(await vault.publicKey(id, key)).toBe(original.publicKey);
+      const raced = await Promise.all([prepareWallet(single, opts), prepareWallet(single, opts)]);
+      expect(raced).toEqual([original, original]);
+      const newOpts = { ...opts, walletId: randomUUID(), label: 'Concurrent prepared identity' };
+      const concurrent = await Promise.all([
+        prepareWallet(pool, newOpts),
+        prepareWallet(pool, newOpts),
+      ]);
+      expect(concurrent[0]).toEqual(concurrent[1]);
+      expect(
+        (
+          await pool.query('SELECT count(*)::int count FROM wallets WHERE id=$1', [
+            newOpts.walletId,
+          ])
+        ).rows[0].count,
+      ).toBe(1);
+    } finally {
+      await single.end();
+    }
   });
   it('keeps legacy unprepared wallets ineligible and supports migration down/up', async () => {
     const b = await bot();

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { DialogFocusReturn } from './dialog-focus';
 import { RISK_WARNING } from '@memebots/core';
 import type {
   BotConfiguration,
@@ -34,6 +35,8 @@ export function errorMessage(code: string): string {
       'Pending orders must finish or be cancelled before changing configuration. Switch the bot off to cancel them.',
     LIVE_EXECUTOR_UNAVAILABLE:
       'Live trading is unavailable. The live executor and kill switch are not implemented. The bot mode has not changed.',
+    LEGACY_PARAMETERS_REQUIRE_OFFLINE_REVIEW:
+      'Existing strategy parameters must be reviewed offline before changing strategy. Your saved parameters were preserved.',
     INVALID_AMOUNT: 'Enter a whole, non-negative number of lamports (up to 39 digits).',
     LOCAL_SESSION_REQUIRED: 'Your local session expired. Reload the panel to reconnect.',
     CSRF_REJECTED: 'The local session could not be verified. Reload the panel to reconnect.',
@@ -79,6 +82,10 @@ export function App() {
     [notice, setNotice] = useState(''),
     [failure, setFailure] = useState(''),
     [live, setLive] = useState(false);
+  const focusReturn = useRef(new DialogFocusReturn());
+  useEffect(() => {
+    focusReturn.current.restore(live, busy);
+  }, [live, busy]);
   async function load(reconnect = false) {
     try {
       if (reconnect) {
@@ -358,7 +365,14 @@ export function App() {
                       >
                         Resume paper
                       </button>
-                      <button className="text-button" disabled={busy} onClick={() => setLive(true)}>
+                      <button
+                        className="text-button"
+                        disabled={busy}
+                        onClick={(event) => {
+                          focusReturn.current.remember(event.currentTarget);
+                          setLive(true);
+                        }}
+                      >
                         Live mode · unavailable ↗
                       </button>
                     </div>
@@ -410,7 +424,7 @@ export function BotForm({
   snapshot: BotControlSnapshot;
   bot?: ControlledBot | undefined;
   busy: boolean;
-  onSave: (input: BotConfiguration | CreateBotRequest) => void;
+  onSave: (input: Omit<BotConfiguration, 'strategyParams'> | CreateBotRequest) => void;
 }) {
   const [name, setName] = useState(bot?.name ?? ''),
     [strategy, setStrategy] = useState(bot?.strategy ?? snapshot.strategies[0]?.id ?? ''),
@@ -418,6 +432,7 @@ export function BotForm({
     [wallet, setWallet] = useState(bot?.walletId ?? snapshot.wallets[0]?.id ?? ''),
     [budget, setBudget] = useState('1000000000'),
     [invalid, setInvalid] = useState('');
+  const hasLegacyParams = Object.keys(bot?.strategyParams ?? {}).length > 0;
   const descriptor = snapshot.strategies.find((s) => s.id === strategy),
     policy = snapshot.profiles.find((p) => p.id === profile),
     selectedWallet = snapshot.wallets.find((w) => w.id === wallet);
@@ -431,8 +446,12 @@ export function BotForm({
           setInvalid(errorMessage('INVALID_AMOUNT'));
           return;
         }
-        const config = { name, strategy, riskProfileId: profile, strategyParams: {} };
-        onSave(bot ? config : { ...config, walletId: wallet, paperBankrollLamports: budget });
+        const config = { name, strategy, riskProfileId: profile };
+        onSave(
+          bot
+            ? config
+            : { ...config, strategyParams: {}, walletId: wallet, paperBankrollLamports: budget },
+        );
       }}
     >
       <fieldset disabled={busy}>
@@ -450,7 +469,11 @@ export function BotForm({
         <div className="field-row">
           <label>
             Strategy
-            <select value={strategy} onChange={(e) => setStrategy(e.target.value)}>
+            <select
+              disabled={hasLegacyParams}
+              value={strategy}
+              onChange={(e) => setStrategy(e.target.value)}
+            >
               {!descriptor && bot && (
                 <option value={bot.strategy}>{bot.strategy} (legacy configuration)</option>
               )}
@@ -473,7 +496,9 @@ export function BotForm({
           </label>
         </div>
         <p className="field-hint">
-          Strategy configuration only. Implementation and parameter settings are unavailable.
+          {hasLegacyParams
+            ? 'Existing strategy parameters are preserved. Changing this strategy requires an explicit offline review; parameter editing is unavailable here.'
+            : 'Strategy configuration only. Implementation and parameter settings are unavailable.'}
         </p>
         {unusual && (
           <p role="note" className="pairing-warning">
@@ -637,11 +662,7 @@ function LiveDialog({
   const ref = useRef<HTMLDialogElement>(null),
     [checked, setChecked] = useState(false);
   useEffect(() => {
-    const previous = document.activeElement;
     ref.current?.showModal();
-    return () => {
-      if (previous instanceof HTMLElement) previous.focus();
-    };
   }, []);
   return (
     <dialog ref={ref} onCancel={onClose} aria-labelledby="live-title">

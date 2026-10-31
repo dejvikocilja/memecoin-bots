@@ -73,7 +73,11 @@ encrypted file and retry **the same walletId, key, label and cap**. Offline reco
 authenticates the saved envelope and derives its public address; it never generates
 a replacement for an existing ID. `pnpm wallet inspect` with
 `{"vaultDirectory":"/absolute/private/directory/vault"}` on stdin reports orphan/missing
-IDs. Resolve missing files or backups offline; metadata alone is not proof of a usable key.
+IDs. If committed wallet metadata exists but the encrypted file is missing,
+preparation refuses with `ORIGINAL_VAULT_RESTORE_REQUIRED`; restore the original
+file from backup before retrying. A replacement key is never generated for that
+identity. Per-wallet preparation is serialized on one database connection so
+concurrent retries cannot race key identity. Metadata alone is not proof of a usable key.
 A claimed wallet cannot be prepared again or reassigned by this command.
 The API never reads the vault or receives its path or encryption key.
 
@@ -89,6 +93,9 @@ Five configuration IDs are implementation choices corresponding to the five spec
 strategies: `sniper`, `momentum`, `copy_trade`, `dip_buy`, `dca_grid`.
 None is runnable yet; parameters accept only `{}` until a schema/implementation exists.
 Existing legacy strategy IDs remain readable and can be retained during edits.
+Existing parameters are preserved in PostgreSQL without JSON round-tripping during
+name/profile edits. The panel cannot edit parameters; a strategy with nonempty
+legacy parameters cannot be changed here and requires an explicit offline review.
 Pairing guidance: sniper → aggressive/degen; momentum and copy_trade → balanced/aggressive;
 dip_buy → conservative/balanced; dca_grid → conservative. Other pairings warn and remain allowed.
 

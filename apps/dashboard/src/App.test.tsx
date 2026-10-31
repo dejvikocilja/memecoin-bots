@@ -71,6 +71,17 @@ describe('bot control rendering and recovery', () => {
     expect(html).toContain('900719925474.099312345');
     expect(html).toContain('Not observed');
     expect(html).toContain('fixed after creation');
+    const configured = renderToString(
+      <BotForm
+        snapshot={empty}
+        bot={{ ...bot, strategyParams: { watchlist: ['public-mint'] } }}
+        busy={false}
+        onSave={() => {}}
+      />,
+    );
+    expect(configured).toContain('Existing strategy parameters are preserved');
+    expect(configured).toContain('Changing this strategy requires an explicit offline review');
+    expect(configured).not.toContain('public-mint');
   });
   it('keeps integer amounts exact and gives actionable conflict/live errors', () => {
     expect(formatSol('900719925474099312345')).toBe('900719925474.099312345');

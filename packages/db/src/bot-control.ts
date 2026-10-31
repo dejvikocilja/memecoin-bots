@@ -70,10 +70,11 @@ function configuration(value: Record<string, unknown>, allowLegacy = false): Bot
     fail('INVALID_PROFILE');
   // No implementation/config schema exists yet. Only the empty configuration is meaningful.
   if (
-    !value.strategyParams ||
-    typeof value.strategyParams !== 'object' ||
-    Array.isArray(value.strategyParams) ||
-    Object.keys(value.strategyParams).length !== 0
+    !(allowLegacy && value.strategyParams === undefined) &&
+    (!value.strategyParams ||
+      typeof value.strategyParams !== 'object' ||
+      Array.isArray(value.strategyParams) ||
+      Object.keys(value.strategyParams).length !== 0)
   )
     fail('STRATEGY_PARAMETERS_UNAVAILABLE');
   return {
@@ -197,6 +198,8 @@ export async function updateControlledBot(
         config.strategy !== before.strategy
       )
         fail('UNKNOWN_STRATEGY');
+      if (config.strategy !== before.strategy && Object.keys(before.strategyParams).length > 0)
+        fail('LEGACY_PARAMETERS_REQUIRE_OFFLINE_REVIEW', 409);
       const pending = await db.query(
         `SELECT id FROM orders WHERE bot_id=$1 AND status IN ('pending','submitted','partially_filled') ORDER BY id FOR UPDATE`,
         [id],
@@ -204,14 +207,9 @@ export async function updateControlledBot(
       if (pending.rowCount) fail('PENDING_ORDERS', 409);
       await profile(db, config.riskProfileId);
       await db.query(
-        'UPDATE bots SET name=$2,strategy=$3,strategy_params=$4,risk_profile_id=$5 WHERE id=$1',
-        [
-          id,
-          config.name,
-          config.strategy,
-          JSON.stringify(config.strategyParams),
-          config.riskProfileId,
-        ],
+        // Parameter editing has no schema yet. Preserve stored JSON exactly, including legacy numeric precision.
+        'UPDATE bots SET name=$2,strategy=$3,risk_profile_id=$4 WHERE id=$1',
+        [id, config.name, config.strategy, config.riskProfileId],
       );
       return getControlledBot(db, id);
     }),

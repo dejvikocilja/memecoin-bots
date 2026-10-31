@@ -45,7 +45,7 @@ export interface ControlledBot {
   readonly id: string;
   readonly name: string;
   readonly strategy: string;
-  readonly strategyParams: Readonly<Record<string, never>>;
+  readonly strategyParams: Readonly<Record<string, unknown>>;
   readonly riskProfileId: string;
   readonly walletId: string;
   readonly publicKey: string;
