@@ -17,8 +17,8 @@ import {
   riskAdmissionFailure,
   riskQuoteFailure,
   riskSpendFailure,
-  recordRiskBoundaryVeto,
   auditRiskBoundaryError,
+  recordFinalRiskVeto,
 } from './risk-admission.js';
 
 const UUID = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i;
@@ -446,10 +446,9 @@ export async function settlePaperAttempt(
     });
     const admissionDenial =
       (await riskAdmissionFailure(db, intent, attempt.model, false)) ??
-      (await riskQuoteFailure(db, intent, attempt.inputRaw, evidence));
+      (await riskQuoteFailure(db, intent, attempt.inputRaw, evidence, candidate));
     if (order.status === 'cancelled') candidate = toZero('CANCELLED', 'cancelled');
     else if (admissionDenial) {
-      await recordRiskBoundaryVeto(db, intent, admissionDenial, 'settlement');
       candidate = toZero(admissionDenial);
     } else if (now >= intent.expiresAt) candidate = toZero('INTENT_EXPIRED');
     else if (!executionStillFresh()) candidate = toZero('MONOTONIC_DEADLINE_EXPIRED');
@@ -699,6 +698,7 @@ export async function settlePaperAttempt(
       positionBefore: pos,
       day: riskDay,
     });
+    await recordFinalRiskVeto(db, intent, result);
     await recordAudit(db, {
       actor: 'system',
       action: 'paper.attempt_settled',

@@ -45,6 +45,22 @@ export function ratioDecimal(n: bigint, d: bigint, places = 30): string {
   return `${v / scale}.${(v % scale).toString().padStart(places, '0')}`;
 }
 /** Conservative integer MODEL: entry worst output, target/stop adverse exit and explicit fees. */
+export function protectedStopProceeds(
+  quantity: bigint,
+  decimals: number,
+  priceSol: string,
+  slippageBps: number,
+  adverseBps: number,
+): bigint {
+  const price = decimalRatio(priceSol);
+  return (
+    (((((quantity * price.n * 1000000000n) / (price.d * 10n ** BigInt(decimals))) *
+      BigInt(10000 - slippageBps)) /
+      10000n) *
+      BigInt(10000 - adverseBps)) /
+    10000n
+  );
+}
 export function netRewardRisk(input: {
   principal: bigint;
   quantity: bigint;
@@ -55,6 +71,7 @@ export function netRewardRisk(input: {
   adverseBps: number;
   entryFees: bigint;
   exitFees: bigint;
+  stopPriceSol?: string;
 }): { reward: bigint; loss: bigint; stopPriceSol: string } {
   const target = decimalRatio(input.targetPriceSol),
     stop = decimalRatio(input.stopFraction);
@@ -63,13 +80,23 @@ export function netRewardRisk(input: {
     10000n;
   const proceeds =
     (input.quantity * target.n * 1_000_000_000n) / (target.d * 10n ** BigInt(input.decimals));
-  const stopProceeds = (input.principal * (stop.d - stop.n)) / stop.d;
+  const stopPriceSol =
+    input.stopPriceSol ??
+    ratioDecimal(
+      input.principal * 10n ** BigInt(input.decimals) * (stop.d - stop.n),
+      input.quantity * 1000000000n * stop.d,
+    );
+  const stopProceeds = protectedStopProceeds(
+    input.quantity,
+    input.decimals,
+    stopPriceSol,
+    input.slippageBps,
+    input.adverseBps,
+  );
+  const book = input.principal + input.entryFees;
   return {
     reward: adverse(proceeds) - input.principal - input.entryFees - input.exitFees,
-    loss: input.principal - adverse(stopProceeds) + input.entryFees + input.exitFees,
-    stopPriceSol: ratioDecimal(
-      input.principal * 10n ** BigInt(input.decimals) * (stop.d - stop.n),
-      input.quantity * 1_000_000_000n * stop.d,
-    ),
+    loss: (book > stopProceeds ? book - stopProceeds : 0n) + input.exitFees,
+    stopPriceSol,
   };
 }

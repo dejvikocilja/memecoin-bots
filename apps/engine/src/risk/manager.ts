@@ -8,6 +8,7 @@ import {
   validateRiskProfile,
   validateSignal,
   PAPER_SOL_MINT,
+  ceilDiv,
 } from '@memebots/core';
 import type {
   ApprovedOrderIntent,
@@ -551,6 +552,42 @@ export class RiskManager {
               loss: economics.loss.toString(),
               minRR: latest.minRewardRisk,
             });
+          // Fixed fees do not scale down with a partial fill. Every executable
+          // prefix must retain net RR even if all reserved entry fees are spent.
+          let remainingPrincipal = size,
+            cumulativePrincipal = 0n,
+            cumulativeQuantity = 0n;
+          for (let prefix = 1; prefix <= MAX_ATTEMPTS; prefix++) {
+            const partial = (remainingPrincipal * BigInt(this.model.partialFillBps)) / 10000n;
+            if (partial <= 0n) deny('PARTIAL_AMOUNT_TOO_SMALL');
+            cumulativePrincipal += partial;
+            cumulativeQuantity += ceilDiv(quantity * partial, size);
+            const partialEconomics = netRewardRisk({
+              principal: cumulativePrincipal,
+              quantity: cumulativeQuantity,
+              decimals: token.decimals,
+              targetPriceSol: target.priceSol,
+              stopFraction: latest.stopLossFraction,
+              stopPriceSol: economics.stopPriceSol,
+              slippageBps: latest.maxSlippageBps,
+              adverseBps: this.model.adverseSlippageBps,
+              entryFees: fees,
+              exitFees: fee,
+            });
+            if (
+              partialEconomics.reward < 0n ||
+              partialEconomics.reward * rr.d < partialEconomics.loss * rr.n
+            )
+              deny('PARTIAL_MODEL_NET_REWARD_RISK', {
+                prefix,
+                principal: cumulativePrincipal.toString(),
+                reward: partialEconomics.reward.toString(),
+                loss: partialEconomics.loss.toString(),
+                minRR: latest.minRewardRisk,
+              });
+            remainingPrincipal -= partial;
+            if (remainingPrincipal === 0n) break;
+          }
           if (day.used + exposure.loss + economics.loss > day.limit)
             deny('DAILY_LOSS_LIMIT', {
               used: day.used.toString(),
@@ -603,6 +640,15 @@ export class RiskManager {
                 entryQuote: quote.quote,
                 rewardLamports: economics.reward.toString(),
                 lossLamports: economics.loss.toString(),
+                economicsPolicy: {
+                  decimals: token.decimals,
+                  minRR: latest.minRewardRisk,
+                  stopFraction: latest.stopLossFraction,
+                  slippageBps: latest.maxSlippageBps,
+                  adverseBps: this.model.adverseSlippageBps,
+                  entryFeeBudget: fees.toString(),
+                  exitFee: fee.toString(),
+                },
               }),
               intent.expiresAt,
               size.toString(),

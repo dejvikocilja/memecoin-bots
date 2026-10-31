@@ -37,6 +37,13 @@ unbounded retries. After three outcomes the outstanding remainder is cancelled;
 actual fills remain held. Only consumed principal and actual fees consume the
 cumulative cap. Pending fee/stop-risk reserves transfer conservatively to open
 positions as fills arrive. Replays return durable results and never charge twice.
+Every executable cumulative partial-fill prefix must independently pass net R:R
+with all fixed entry fees and the exit fee included; a full-size R:R pass alone
+does not authorize a tiny partial. Settlement rechecks cumulative actual amounts.
+The loss reserve keeps whole remaining attempt fees, plus exact incremental
+principal stop-risk at the saved rounded stop price. The exit fee transfers once
+to the open-position commitment. Amount-proportional minimum token floors make
+the combined pending/open stop-risk nonincreasing across accepted partial fills.
 
 Quotes use the existing explicitly selected `bounded_request_age_MODEL` policy,
 at most 5 seconds, with MODEL network/priority costs and embedded swap fees already
@@ -84,8 +91,11 @@ The immutable receipt binds the complete canonical intent, bot configuration has
 fingerprint, target/quote assumptions and expiry. A `risk_manager` marker/reference
 alone grants no authority. Registration, attempt preparation and settlement enforce
 that binding. Profile/config edits, replaced safety cache evidence, expired evidence,
-cash/cap changes and worse quotes cannot execute under an old receipt. Expired or
-stale authorizations are explicitly reconciled; process crashes do not release holds.
+cash/cap changes and worse quotes cannot execute under an old receipt.
+The durable losing streak is checked again before preparation and after quote IO;
+a newly closed loss can revoke an already-pending entry. Terminal order status
+also revokes the receipt, including after an off → paper resume.
+Expired or stale authorizations are explicitly reconciled; process crashes do not release holds.
 Cancellation/terminal-order triggers release pending holds in the same transaction,
 including mode-control cancellation from another service.
 
@@ -118,7 +128,11 @@ guaranteed to fill.
 Every veto, including malformed input and nonexistent bots/tokens, commits an
 immutable decision and exact safe reason-code audit atomically, without inventing
 order/token rows. Strategy free text is hashed for idempotency and not stored in
-audit. An unavailable database fails closed with
+audit.
+Every final no-fill outcome of a risk-approved broker attempt also commits exactly
+one immutable, attempt-bound risk veto and reason-code audit, including quote,
+budget, slippage and monotonic-clock failures. Replays do not duplicate that event.
+An unavailable database fails closed with
 `RISK_STORAGE_UNAVAILABLE_NO_DECISION_COMMITTED`; it never claims a durable veto.
 
 ## Local use and recovery

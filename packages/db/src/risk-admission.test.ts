@@ -389,8 +389,8 @@ describe.skipIf(!hasTestDatabase)('risk admission and real paper pipeline', () =
     await expect(setPaperRiskCap(pool, botId, '1')).rejects.toThrow('PAPER_CAP_BELOW_COMMITMENT');
   });
   it.each([
-    ['0.00432000002', 'approved'],
-    ['0.004320000019', 'vetoed'],
+    ['0.004320000021', 'approved'],
+    ['0.00432000002', 'vetoed'],
   ])('daily integer boundary %s is %s', async (fraction, status) => {
     await pool.query("UPDATE risk_profiles SET daily_loss_limit_fraction=$1 WHERE id='balanced'", [
       fraction,
@@ -402,7 +402,7 @@ describe.skipIf(!hasTestDatabase)('risk admission and real paper pipeline', () =
       expect(
         (await pool.query('SELECT metrics FROM risk_decisions WHERE id=$1', [decision.id])).rows[0]
           .metrics,
-      ).toMatchObject({ used: '0', reserved: '0', requested: '4320000020', limit: '4320000019' });
+      ).toMatchObject({ used: '0', reserved: '0', requested: '4320000021', limit: '4320000020' });
     }
   });
   it('profile edits during quote IO veto and pending authorization cannot execute after edits', async () => {
@@ -734,5 +734,199 @@ describe.skipIf(!hasTestDatabase)('risk admission and real paper pipeline', () =
       lease: lease!,
     });
     expect(await admit('old-safety')).toMatchObject({ code: 'SAFETY_DENIED' });
+  });
+  it('retains whole remaining retry fees when another admission interleaves partial fills', async () => {
+    await pool.query('UPDATE bots SET paper_bankroll_lamports=100000 WHERE id=$1', [botId]);
+    await pool.query(
+      "UPDATE risk_profiles SET max_slippage_bps=1,daily_loss_limit_fraction=.0144 WHERE id='balanced'",
+    );
+    const partial = {
+      ...model,
+      partialFillBps: 9000,
+      fees: { ...model.fees, networkLamports: '100' },
+    };
+    const intent = approved(await admit('conserve', MINT, { model: partial })),
+      broker = new PaperBroker(pool, provider(), partial);
+    expect((await broker.execute(intent, 'conserve:1')).status).toBe('partial');
+    const first = (await riskExposure(pool, botId)).loss;
+    expect(
+      BigInt(
+        (
+          await pool.query('SELECT loss_remaining FROM risk_reservations WHERE admission_id=$1', [
+            intent.approval.reference,
+          ])
+        ).rows[0].loss_remaining,
+      ),
+    ).toBeGreaterThanOrEqual(200n);
+    expect(await admit('interleaved', OTHER, { model: partial })).toMatchObject({
+      status: 'vetoed',
+      code: 'DAILY_LOSS_LIMIT',
+    });
+    for (let n = 2; n <= 3; n++) {
+      expect((await broker.execute(intent, `conserve:${n}`)).status).toBe('partial');
+      expect((await riskExposure(pool, botId)).loss).toBeLessThanOrEqual(first);
+      expect((await riskExposure(pool, botId)).loss).toBeLessThanOrEqual(1440n);
+    }
+  });
+  it('rejects a full-size RR pass whose tiny partial outcome cannot cover absolute fees', async () => {
+    await pool.query('UPDATE bots SET paper_bankroll_lamports=100000 WHERE id=$1', [botId]);
+    await pool.query("UPDATE risk_profiles SET max_slippage_bps=1 WHERE id='balanced'");
+    const tiny = { ...model, partialFillBps: 100, fees: { ...model.fees, networkLamports: '100' } };
+    expect(
+      await manager({ model: tiny }).submitSignal(
+        botId,
+        'momentum',
+        signal(),
+        'tiny',
+        target(MINT, '0.21'),
+      ),
+    ).toMatchObject({ status: 'vetoed', code: 'PARTIAL_MODEL_NET_REWARD_RISK' });
+    expect((await pool.query('SELECT * FROM orders')).rowCount).toBe(0);
+    expect(
+      (await pool.query('SELECT paper_bankroll_lamports FROM bots WHERE id=$1', [botId])).rows[0]
+        .paper_bankroll_lamports,
+    ).toBe('100000');
+  });
+  it.each(['before_prepare', 'during_quote'])(
+    'a pending buy rechecks the durable closed-loss streak %s',
+    async (stage) => {
+      await pool.query('INSERT INTO risk_streaks(bot_id,losses) VALUES($1,3)', [botId]);
+      const first = approved(await admit('first')),
+        pending = approved(await admit('pending', OTHER));
+      await new PaperBroker(pool, provider(), model).execute(first, 'first-fill');
+      if (stage === 'before_prepare') {
+        await sell(first);
+        expect((await pool.query('SELECT losses FROM risk_streaks')).rows[0].losses).toBe(4);
+        await expect(
+          new PaperBroker(pool, provider(), model).execute(pending, 'blocked-before'),
+        ).rejects.toThrow('LOSING_STREAK_LIMIT');
+      } else {
+        const source = provider(),
+          closing: PaperQuoteProvider = {
+            currentContext: () => source.currentContext(),
+            quote: async (req) => {
+              await sell(first);
+              return source.quote(req);
+            },
+          };
+        expect(
+          await new PaperBroker(pool, closing, model).execute(pending, 'blocked-after'),
+        ).toMatchObject({
+          status: 'failed',
+          reason: 'LOSING_STREAK_LIMIT',
+          networkFeeLamports: '0',
+          inputRaw: '0',
+        });
+      }
+      expect(
+        (await pool.query('SELECT * FROM fills WHERE order_id=$1', [pending.orderId])).rowCount,
+      ).toBe(0);
+      expect(
+        (await pool.query("SELECT * FROM risk_decisions WHERE code='LOSING_STREAK_LIMIT'"))
+          .rowCount,
+      ).toBe(1);
+    },
+  );
+  it.each(['slippage', 'monotonic', 'unavailable', 'cash_budget'])(
+    'persists exactly one final per-attempt risk veto for generic broker %s outcomes',
+    async (kind) => {
+      const selected = { ...model, adverseSlippageBps: kind === 'slippage' ? 200 : 0 },
+        intent = approved(await admit(`veto:${kind}`, MINT, { model: selected }));
+      const source = provider(),
+        quotes: PaperQuoteProvider = {
+          currentContext: () => source.currentContext(),
+          quote: async (req) => {
+            if (kind === 'unavailable') return { status: 'unavailable', reason: 'TEST_NO_QUOTE' };
+            if (kind === 'cash_budget')
+              await pool.query('UPDATE bots SET paper_bankroll_lamports=0 WHERE id=$1', [botId]);
+            const evidence = await source.quote(req);
+            if (kind === 'slippage' && evidence.status === 'available')
+              return {
+                status: 'available',
+                quote: {
+                  ...evidence.quote,
+                  minimumOutputRaw: evidence.quote.outputRaw,
+                  providerMinimumOutputRaw: evidence.quote.outputRaw,
+                },
+              };
+            return evidence;
+          },
+        };
+      let samples = 0;
+      const broker = new PaperBroker(
+        pool,
+        quotes,
+        selected,
+        kind === 'monotonic' ? { monotonicClock: () => (++samples === 1 ? 0 : 6000) } : {},
+      );
+      const result = await broker.execute(intent, `execution:${kind}`);
+      expect(result.inputRaw).toBe('0');
+      expect(result.reason).toBe(
+        {
+          slippage: 'SLIPPAGE_LIMIT',
+          monotonic: 'MONOTONIC_DEADLINE_EXPIRED',
+          unavailable: 'TEST_NO_QUOTE',
+          cash_budget: 'INSUFFICIENT_PAPER_CASH',
+        }[kind],
+      );
+      expect(await broker.execute(intent, `execution:${kind}`)).toEqual(result);
+      const row = (
+        await pool.query('SELECT * FROM risk_decisions WHERE execution_attempt_id=$1', [
+          result.attemptId,
+        ])
+      ).rows;
+      expect(row).toHaveLength(1);
+      expect(row[0].code).toBe(result.reason);
+      expect(
+        (
+          await pool.query(
+            "SELECT * FROM audit_log WHERE action='risk.vetoed' AND details->>'attemptId'=$1",
+            [result.attemptId],
+          )
+        ).rowCount,
+      ).toBe(1);
+    },
+  );
+  it('partial entry then direct off/cancel and paper resume releases only pending remainder', async () => {
+    const partial = { ...model, partialFillBps: 5000 },
+      intent = approved(await admit('off-flow', MINT, { model: partial }));
+    expect(
+      (await new PaperBroker(pool, provider(), partial).execute(intent, 'off-partial')).status,
+    ).toBe('partial');
+    const consumed = (
+      await pool.query('SELECT consumed_lamports FROM risk_paper_accounts WHERE bot_id=$1', [botId])
+    ).rows[0].consumed_lamports;
+    const positionBefore = (
+      await pool.query('SELECT * FROM risk_position_commitments WHERE bot_id=$1', [botId])
+    ).rows[0];
+    await withTransaction(pool, async (db) => {
+      await db.query('SELECT id FROM bots WHERE id=$1 FOR UPDATE', [botId]);
+      await db.query('SELECT id FROM orders WHERE bot_id=$1 ORDER BY id FOR UPDATE', [botId]);
+      await db.query("UPDATE bots SET mode='off' WHERE id=$1", [botId]);
+      await db.query("UPDATE orders SET status='cancelled',failure_reason='BOT_OFF' WHERE id=$1", [
+        intent.orderId,
+      ]);
+      expect((await riskExposure(db, botId)).debit).toBe(0n);
+      await db.query("UPDATE bots SET mode='paper' WHERE id=$1", [botId]);
+    });
+    await reconcileRiskAdmissions(pool, botId);
+    expect((await riskExposure(pool, botId)).debit).toBe(0n);
+    expect(
+      (
+        await pool.query('SELECT consumed_lamports FROM risk_paper_accounts WHERE bot_id=$1', [
+          botId,
+        ])
+      ).rows[0].consumed_lamports,
+    ).toBe(consumed);
+    expect(
+      (await pool.query('SELECT * FROM risk_position_commitments WHERE bot_id=$1', [botId]))
+        .rows[0],
+    ).toEqual(positionBefore);
+    await expect(
+      new PaperBroker(pool, provider(), partial).execute(intent, 'off-new-attempt'),
+    ).rejects.toThrow('RISK_ORDER_TERMINAL');
+    expect(
+      (await pool.query('SELECT * FROM fills WHERE order_id=$1', [intent.orderId])).rowCount,
+    ).toBe(1);
   });
 });

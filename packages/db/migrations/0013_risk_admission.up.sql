@@ -4,7 +4,8 @@ CREATE TABLE risk_decisions (
  request_key text NOT NULL, request_hash text NOT NULL, bot_id uuid REFERENCES bots(id),
  status text NOT NULL CHECK(status IN ('approved','vetoed')), code text NOT NULL,
  metrics jsonb NOT NULL DEFAULT '{}'::jsonb CHECK(jsonb_typeof(metrics)='object'),
- intent jsonb, created_at timestamptz NOT NULL DEFAULT clock_timestamp(), UNIQUE(scope,request_key)
+ intent jsonb, execution_attempt_id uuid UNIQUE REFERENCES paper_execution_attempts(id),
+ created_at timestamptz NOT NULL DEFAULT clock_timestamp(), UNIQUE(scope,request_key)
 );
 CREATE TABLE risk_paper_accounts (
  bot_id uuid PRIMARY KEY REFERENCES bots(id), cap_lamports numeric(39,0) NOT NULL CHECK(cap_lamports>=0),

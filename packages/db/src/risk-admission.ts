@@ -1,5 +1,11 @@
 import { createHash } from 'node:crypto';
-import { ceilDiv, decimalRatio, fractionFloor } from '@memebots/core';
+import {
+  ceilDiv,
+  decimalRatio,
+  fractionFloor,
+  netRewardRisk,
+  protectedStopProceeds,
+} from '@memebots/core';
 import type {
   ApprovedOrderIntent,
   ExecutionResult,
@@ -61,6 +67,8 @@ export async function auditRiskBoundaryError(
     'DAILY_LOSS_LIMIT',
     'INSUFFICIENT_PAPER_CASH',
     'ATTEMPT_LIMIT',
+    'LOSING_STREAK_LIMIT',
+    'RISK_ORDER_TERMINAL',
   ];
   if (
     intent.approval.kind === 'risk_manager' &&
@@ -70,6 +78,11 @@ export async function auditRiskBoundaryError(
     await withTransaction(pool, async (db) => {
       await db.query('SELECT id FROM bots WHERE id=$1 FOR UPDATE', [intent.botId]);
       await recordRiskBoundaryVeto(db, intent, error.message, stage);
+      if (!['RISK_RECEIPT_REQUIRED', 'RISK_MODEL_MISMATCH'].includes(error.message))
+        await db.query(
+          "UPDATE orders SET status='cancelled',failure_reason=$2 WHERE id=$1 AND status IN ('pending','partially_filled')",
+          [intent.orderId, error.message],
+        );
     });
   throw error;
 }
@@ -206,14 +219,15 @@ export async function riskAdmissionFailure(
       max_attempts: number;
       snapshot_expiry: Date;
       current_snapshot: string | null;
+      order_status: string;
       snapshot_id: string;
       cash: string;
     }>(
-      `SELECT a.*, p.revision::text, b.strategy,b.strategy_params,b.risk_profile_id,b.mode,b.wallet_id,
+      `SELECT a.*,o.status order_status, p.revision::text, b.strategy,b.strategy_params,b.risk_profile_id,b.mode,b.wallet_id,
     (extract(epoch FROM a.expires_at)*1000)::bigint::text expires,r.state,r.debit_remaining,
     c.consumed_lamports::text consumed,c.cap_lamports::text cap,w.spend_cap_lamports::text wallet_cap,s.expires_at snapshot_expiry,
     b.paper_bankroll_lamports::text cash,(SELECT snapshot_id::text FROM token_safety_cache WHERE cache_key=s.cache_key) current_snapshot
-    FROM risk_admissions a JOIN risk_reservations r ON r.admission_id=a.id JOIN bots b ON b.id=a.bot_id
+    FROM risk_admissions a JOIN orders o ON o.id=a.order_id JOIN risk_reservations r ON r.admission_id=a.id JOIN bots b ON b.id=a.bot_id
     JOIN risk_profiles p ON p.id=b.risk_profile_id JOIN risk_paper_accounts c ON c.bot_id=b.id
     JOIN wallets w ON w.id=b.wallet_id JOIN token_safety_snapshots s ON s.id=a.snapshot_id
     WHERE a.id::text=$1 AND a.order_id=$2`,
@@ -221,13 +235,15 @@ export async function riskAdmissionFailure(
     )
   ).rows[0];
   if (!row || riskCanonical(row.intent) !== riskCanonical(intent)) return 'RISK_RECEIPT_REQUIRED';
+  if (!['pending', 'partially_filled'].includes(row.order_status)) return 'RISK_ORDER_TERMINAL';
   await db.query('SELECT id FROM risk_profiles WHERE id=$1 FOR SHARE', [row.risk_profile_id]);
   // Re-read revisions after acquiring the profile lock; an edit may have won the race.
-  const lockedRevision = (
-    await db.query<{ revision: string }>('SELECT revision::text FROM risk_profiles WHERE id=$1', [
-      row.risk_profile_id,
-    ])
-  ).rows[0]!.revision;
+  const lockedProfile = (
+    await db.query<{ revision: string; losing_streak_limit: number }>(
+      'SELECT revision::text,losing_streak_limit FROM risk_profiles WHERE id=$1',
+      [row.risk_profile_id],
+    )
+  ).rows[0]!;
   await db.query(
     'SELECT cache_key FROM token_safety_cache WHERE cache_key=(SELECT cache_key FROM token_safety_snapshots WHERE id=$1) FOR SHARE',
     [row.snapshot_id],
@@ -242,7 +258,7 @@ export async function riskAdmissionFailure(
   if (
     row.mode !== 'paper' ||
     row.config_hash !== riskConfigHash(row) ||
-    row.profile_revision.toString() !== lockedRevision ||
+    row.profile_revision.toString() !== lockedProfile.revision ||
     row.state !== 'active' ||
     lockedSnapshot !== row.snapshot_id
   )
@@ -250,6 +266,13 @@ export async function riskAdmissionFailure(
   if (day.now >= Number(row.expires) || day.now >= row.snapshot_expiry.getTime())
     return 'RISK_AUTHORIZATION_EXPIRED';
   if (model && riskCanonical(model) !== riskCanonical(row.model)) return 'RISK_MODEL_MISMATCH';
+  const streak =
+    (
+      await db.query<{ losses: number }>('SELECT losses FROM risk_streaks WHERE bot_id=$1', [
+        intent.botId,
+      ])
+    ).rows[0]?.losses ?? 0;
+  if (streak >= lockedProfile.losing_streak_limit) return 'LOSING_STREAK_LIMIT';
   const exposure = await riskExposure(db, intent.botId);
   if (BigInt(row.cash) < exposure.debit + exposure.feeCash) return 'INSUFFICIENT_PAPER_CASH';
   const cap = BigInt(row.cap);
@@ -342,11 +365,24 @@ export async function riskQuoteFailure(
   intent: ApprovedOrderIntent,
   input: string,
   evidence: QuoteEvidence | undefined,
+  candidate?: ExecutionResult,
 ): Promise<string | null> {
   if (intent.approval.kind !== 'risk_manager' || evidence?.status !== 'available') return null;
   const approved = (
     await db.query<{
-      assumptions: { entryQuote: { minimumOutputRaw: string } };
+      assumptions: {
+        entryQuote: { minimumOutputRaw: string };
+        target: { priceSol: string };
+        economicsPolicy: {
+          decimals: number;
+          minRR: string;
+          stopFraction: string;
+          slippageBps: number;
+          adverseBps: number;
+          entryFeeBudget: string;
+          exitFee: string;
+        };
+      };
       principal_lamports: string;
     }>('SELECT assumptions,principal_lamports FROM risk_admissions WHERE order_id=$1', [
       intent.orderId,
@@ -358,7 +394,84 @@ export async function riskQuoteFailure(
       BigInt(approved.assumptions.entryQuote.minimumOutputRaw) * BigInt(input)
   )
     return 'RISK_QUOTE_MOVED';
+  if (candidate && ['filled', 'partial'].includes(candidate.status)) {
+    const position = (
+      await db.query<{ quantity_raw: string; remaining_raw: string }>(
+        `SELECT p.quantity_raw,p.remaining_raw FROM paper_execution_positions x JOIN positions p ON p.id=x.position_id WHERE x.order_id=$1`,
+        [intent.orderId],
+      )
+    ).rows[0];
+    if (position && position.quantity_raw !== position.remaining_raw)
+      return 'RISK_POSITION_REDUCED';
+    const prior = (
+      await db.query<{ principal: string; quantity: string }>(
+        `SELECT COALESCE(sum((result->>'inputRaw')::numeric),0)::text principal,COALESCE(sum((result->>'outputRaw')::numeric),0)::text quantity FROM paper_execution_results WHERE order_id=$1 AND result->>'status' IN ('filled','partial')`,
+        [intent.orderId],
+      )
+    ).rows[0]!;
+    const policy = approved.assumptions.economicsPolicy;
+    const economics = netRewardRisk({
+      principal: BigInt(prior.principal) + BigInt(input),
+      quantity: BigInt(prior.quantity) + BigInt(candidate.outputRaw),
+      decimals: policy.decimals,
+      targetPriceSol: approved.assumptions.target.priceSol,
+      stopFraction: policy.stopFraction,
+      stopPriceSol: intent.entry!.stopPriceSol,
+      slippageBps: policy.slippageBps,
+      adverseBps: policy.adverseBps,
+      entryFees: BigInt(policy.entryFeeBudget),
+      exitFees: BigInt(policy.exitFee),
+    });
+    const rr = decimalRatio(policy.minRR);
+    if (economics.reward < 0n || economics.reward * rr.d < economics.loss * rr.n)
+      return 'MIN_REWARD_RISK';
+  }
   return null;
+}
+
+/** Exactly one immutable risk veto for the final no-fill outcome of every risk
+ * attempt. Called with the durable result in the same settlement transaction. */
+export async function recordFinalRiskVeto(
+  db: Queryable,
+  intent: ApprovedOrderIntent,
+  result: ExecutionResult,
+): Promise<void> {
+  if (intent.approval.kind !== 'risk_manager' || ['filled', 'partial'].includes(result.status))
+    return;
+  const exposure = await riskExposure(db, intent.botId);
+  const metrics = {
+    networkFeeLamports: result.networkFeeLamports,
+    priorityFeeLamports: result.priorityFeeLamports,
+    reservedDebit: exposure.debit.toString(),
+    reservedLoss: exposure.loss.toString(),
+  };
+  const row = (
+    await db.query<{ id: string }>(
+      `INSERT INTO risk_decisions(scope,request_key,request_hash,bot_id,status,code,metrics,execution_attempt_id) VALUES($1,gen_random_uuid()::text,$2,$3,'vetoed',$4,$5,$6) ON CONFLICT(execution_attempt_id) DO NOTHING RETURNING id`,
+      [
+        riskHash(intent.botId),
+        riskHash([intent, result]),
+        intent.botId,
+        result.reason,
+        JSON.stringify(metrics),
+        result.attemptId,
+      ],
+    )
+  ).rows[0];
+  if (row)
+    await recordAudit(db, {
+      actor: 'system',
+      action: 'risk.vetoed',
+      entityType: 'risk_decision',
+      entityId: row.id,
+      details: {
+        code: result.reason,
+        stage: 'settlement',
+        orderId: intent.orderId,
+        attemptId: result.attemptId,
+        metrics,
+      },
+    });
 }
 
 /** Cancel expired/config-stale pending receipts under bot-first locking; late settlements become zero. */
@@ -466,6 +579,11 @@ export async function reconcileRiskSettlement(
       principal_lamports: string;
       loss_lamports: string;
       max_attempts: number;
+      intent: ApprovedOrderIntent;
+      assumptions: {
+        entryQuote: { minimumOutputRaw: string };
+        economicsPolicy: { decimals: number; slippageBps: number; adverseBps: number };
+      };
     }>('SELECT * FROM risk_admissions WHERE order_id=$1', [orderId])
   ).rows[0];
   if (receipt) {
@@ -482,6 +600,31 @@ export async function reconcileRiskSettlement(
       BigInt(sums.attempts) < BigInt(receipt.max_attempts);
     const fee = BigInt(model.fees.networkLamports) + BigInt(model.fees.priorityLamports);
     const feeRemaining = fee * (BigInt(receipt.max_attempts) - BigInt(sums.attempts));
+    const policy = receipt.assumptions.economicsPolicy;
+    const currentQuantity = position ? BigInt(position.remaining_raw) : 0n;
+    const futureMinimum = ceilDiv(
+      BigInt(receipt.assumptions.entryQuote.minimumOutputRaw) * remaining,
+      BigInt(receipt.principal_lamports),
+    );
+    const protectedBefore = protectedStopProceeds(
+      currentQuantity,
+      policy.decimals,
+      receipt.intent.entry!.stopPriceSol,
+      policy.slippageBps,
+      policy.adverseBps,
+    );
+    const protectedAfter = protectedStopProceeds(
+      currentQuantity + futureMinimum,
+      policy.decimals,
+      receipt.intent.entry!.stopPriceSol,
+      policy.slippageBps,
+      policy.adverseBps,
+    );
+    const incrementalStopRisk =
+      remaining > protectedAfter - protectedBefore
+        ? remaining - (protectedAfter - protectedBefore)
+        : 0n;
+    const reservedLoss = incrementalStopRisk + feeRemaining + (position ? 0n : fee);
     if (!pending && ['partial', 'unavailable'].includes(result.status))
       await db.query(
         "UPDATE orders SET status='cancelled',failure_reason='RISK_ATTEMPT_LIMIT' WHERE id=$1",
@@ -492,12 +635,7 @@ export async function reconcileRiskSettlement(
       [
         receipt.id,
         pending ? (remaining + feeRemaining + (position ? 0n : fee)).toString() : '0',
-        pending
-          ? ceilDiv(
-              BigInt(receipt.loss_lamports) * remaining,
-              BigInt(receipt.principal_lamports),
-            ).toString()
-          : '0',
+        pending ? reservedLoss.toString() : '0',
         pending ? 'active' : 'terminal',
       ],
     );
