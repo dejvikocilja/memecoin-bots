@@ -20,7 +20,10 @@
     "dev:engine": "pnpm --filter @memebots/engine dev",
     "dev:market-data": "pnpm --filter @memebots/market-data collect",
     "dev:api": "pnpm --filter @memebots/api dev",
-    "dev:dashboard": "pnpm --filter @memebots/dashboard dev"
+    "dev:dashboard": "pnpm --filter @memebots/dashboard dev",
+    "db:migrate": "pnpm --filter @memebots/db migrate up",
+    "db:rollback": "pnpm --filter @memebots/db migrate down",
+    "db:status": "pnpm --filter @memebots/db migrate status"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

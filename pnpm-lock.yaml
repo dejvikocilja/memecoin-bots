@@ -41,6 +41,9 @@ importers:
 
   apps/api:
     dependencies:
+      '@memebots/config':
+        specifier: workspace:*
+        version: link:../../packages/config
       '@memebots/core':
         specifier: workspace:*
         version: link:../../packages/core
@@ -75,11 +78,32 @@ importers:
 
   apps/engine:
     dependencies:
+      '@memebots/config':
+        specifier: workspace:*
+        version: link:../../packages/config
       '@memebots/core':
         specifier: workspace:*
         version: link:../../packages/core
 
+  packages/config: {}
+
   packages/core: {}
+
+  packages/db:
+    dependencies:
+      '@memebots/config':
+        specifier: workspace:*
+        version: link:../config
+      '@memebots/core':
+        specifier: workspace:*
+        version: link:../core
+      pg:
+        specifier: ^8.23.1
+        version: 8.23.1
+    devDependencies:
+      '@types/pg':
+        specifier: ^8.23.1
+        version: 8.23.1
 
   packages/market-data:
     dependencies:

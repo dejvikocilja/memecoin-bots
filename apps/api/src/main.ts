@@ -1,15 +1,26 @@
-import { parseBotMode } from '@memebots/core';
+import { createAppContext } from '@memebots/config';
 
 import { buildServer } from './server.js';
 
-// Config loading moves to the typed loader from BOT-4.
-const port = Number(process.env.API_PORT ?? 3001);
-// Local hosting (ADR-1): listen on loopback only unless told otherwise.
-const host = process.env.API_HOST ?? '127.0.0.1';
-
-const app = buildServer({ mode: parseBotMode(process.env.BOT_MODE), logger: true });
-
-app.listen({ port, host }).catch((err: unknown) => {
-  app.log.error(err);
-  process.exit(1);
-});
+const context = createAppContext(process.env, (line) => process.stdout.write(`${line}\n`));
+if (!context) {
+  process.exitCode = 1;
+} else {
+  const { config, logger } = context;
+  const app = buildServer({ mode: config.mode, logger });
+  try {
+    // Fastify normalizes/mutates listen options; validated configuration stays immutable.
+    await app.listen({ ...config.api });
+    logger.info('api_listening', { host: config.api.host, port: config.api.port });
+    for (const signal of ['SIGINT', 'SIGTERM'] as const) {
+      process.once(signal, () => {
+        void app.close().catch(() => {
+          process.exitCode = 1;
+        });
+      });
+    }
+  } catch (error) {
+    logger.error('api_startup_failed', { error });
+    process.exitCode = 1;
+  }
+}

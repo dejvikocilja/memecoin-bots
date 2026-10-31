@@ -19,19 +19,24 @@ holds the code.
 
 ## Status
 
-Scaffold only (task BOT-3). Nothing here can trade real funds yet: the engine refuses
-`live` mode until the live executor and kill switch are built.
+The scaffold (BOT-3) now uses shared typed configuration and redacted logging (BOT-4).
+Both services validate their settings before starting. An opt-in read-only discovery
+listener streams new pools and pump.fun launches (BOT-6); see
+[discovery setup, coverage and limits](docs/architecture/DISCOVERY.md). Nothing can trade real funds:
+the runtime accepts `paper` mode only and rejects wallet signing material.
 
 ## Layout
 
-| Path             | What it is                                                                                    |
-| ---------------- | --------------------------------------------------------------------------------------------- |
-| `packages/core`  | Shared types and constants: bot modes, risk profile names, strategy signals, the risk warning |
-| `apps/engine`    | The bot engine (market data → strategies → risk manager → executor)                           |
-| `apps/api`       | HTTP API for the dashboard (Fastify)                                                          |
-| `apps/dashboard` | Web dashboard (React + Vite)                                                                  |
-| `scripts/`       | Repository checks, such as the secret scanner                                                 |
-| `docs/`          | Architecture and decision records                                                             |
+| Path              | What it is                                                                                    |
+| ----------------- | --------------------------------------------------------------------------------------------- |
+| `packages/core`   | Shared types and constants: bot modes, risk profile names, strategy signals, the risk warning |
+| `packages/config` | Shared startup validation, secret wrappers, redacted logging and encrypted secret envelopes   |
+| `packages/db`     | PostgreSQL schema, migrations and data access (see its README)                                |
+| `apps/engine`     | The bot engine (market data → strategies → risk manager → executor)                           |
+| `apps/api`        | HTTP API for the dashboard (Fastify)                                                          |
+| `apps/dashboard`  | Web dashboard (React + Vite)                                                                  |
+| `scripts/`        | Repository checks, such as the secret scanner                                                 |
+| `docs/`           | Architecture and decision records                                                             |
 
 ## Run it locally
 
@@ -43,33 +48,48 @@ pnpm install
 cp .env.example .env
 ```
 
+The API and engine dev/start commands read the root `.env` if it exists. It contains
+only local demo defaults; real credentials must come from a protected environment,
+secret manager, or encrypted configuration as described in [configuration](docs/configuration.md).
+`DATABASE_URL` is required even before a database connection is opened. The default
+market-data mode is offline fixtures. The API binds only to `127.0.0.1`.
+
+Start PostgreSQL (or use a local install) and create the tables:
+
+```bash
+docker compose up -d postgres   # creates the memebots and memebots_test databases
+pnpm db:migrate                 # reads DATABASE_URL from .env, like the API and engine
+```
+
 Start each part in its own terminal:
 
 ```bash
-pnpm dev:engine      # engine in paper mode
+pnpm dev:engine      # engine in paper mode, discovery disabled by default
 pnpm dev:api         # API on http://127.0.0.1:3001/health
 pnpm dev:dashboard   # dashboard on http://127.0.0.1:5173
 ```
 
-PostgreSQL is optional until the data model lands (BOT-5). To run one locally:
+For free public read-only discovery, run `MARKET_DATA_ENABLED=true pnpm dev:engine`.
+This is independent of `BOT_MARKET_DATA`, which may remain `fixtures`.
 
-```bash
-docker compose up -d postgres
-```
+Database commands: `pnpm db:migrate`, `pnpm db:status`, `pnpm db:rollback [steps]`
+(see `packages/db/README.md`). Discovery does not open a database connection.
 
 ## Checks
 
-`pnpm check` runs everything CI runs:
+`pnpm check` runs the repository validation suite:
 
-| Command              | What it does                                                                   |
-| -------------------- | ------------------------------------------------------------------------------ |
-| `pnpm check:secrets` | Fails if a `.env` file, a Solana keypair or a private key is in the repository |
-| `pnpm lint`          | ESLint and Prettier                                                            |
-| `pnpm typecheck`     | TypeScript in strict mode, every package                                       |
-| `pnpm test`          | Vitest, every package                                                          |
-| `pnpm build`         | Builds every package                                                           |
+| Command              | What it does                                                                                                                          |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| `pnpm check:secrets` | Fails if a `.env` file, a Solana keypair or a private key is in the repository                                                        |
+| `pnpm lint`          | ESLint and Prettier                                                                                                                   |
+| `pnpm typecheck`     | TypeScript in strict mode, every package                                                                                              |
+| `pnpm test`          | Vitest, every package. Database tests need `TEST_DATABASE_URL` (see `.env.example`); without it they are skipped locally, never in CI |
+| `pnpm build`         | Builds every package                                                                                                                  |
 
-CI (`.github/workflows/ci.yml`) runs the same checks on every pull request.
+CI (`.github/workflows/ci.yml`) runs these checks on every pull request and also
+exercises `db:migrate`, `db:status`, `db:rollback`, then `db:migrate` against a
+disposable database.
 
 ### Market snapshots (BOT-7)
 
@@ -82,7 +102,10 @@ setup, data limitations, the 200-token capacity test and backup/restore.
 
 - Never commit `.env`, keypair files or private keys. `.gitignore` covers the usual
   names, and `pnpm check:secrets` and CI catch anything that slips through.
-- Wallet keys are loaded only by the executor, encrypted at rest (BOT-4 defines how).
+- The paper runtime rejects wallet keys. Future live-executor key access belongs to BOT-8/20.
+- The API/engine use the shared redacted logger; raw Fastify request/error logs are disabled.
+- Encrypted secret envelopes are authenticated before use; the encryption key stays in a
+  separate protected source. See [configuration and secrets](docs/configuration.md).
 - Each bot has its own small hot wallet. Never point a bot at your main wallet.
 
 ## Rules for this project
