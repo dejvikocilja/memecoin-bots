@@ -82,6 +82,13 @@ BEGIN
     PERFORM monitoring_transition('bot_stalled', lease.bot_id::text,
       lease.mode = 'paper' AND lease.expected AND COALESCE(lease.heartbeat_at, lease.expected_since) <= clock_timestamp() - interval '40 seconds', 'heartbeat_stale');
   END LOOP;
+  -- Bot deletion cascades its lease, but incident/event history remains. Close only
+  -- orphaned bot incidents; other bots and provider incidents retain their state.
+  FOR lease IN SELECT i.entity_id FROM monitoring_incidents i
+    WHERE i.category = 'bot_stalled' AND i.resolved_at IS NULL
+      AND NOT EXISTS (SELECT 1 FROM bots b WHERE b.id::text = i.entity_id) LOOP
+    PERFORM monitoring_transition('bot_stalled', lease.entity_id, false, 'heartbeat_stale');
+  END LOOP;
 END;
 $$;
 -- One bounded statement scans and returns newly durable events, so provider work cannot delay stall emission.

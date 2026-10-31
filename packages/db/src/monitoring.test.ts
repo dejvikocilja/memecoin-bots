@@ -155,6 +155,47 @@ describe.skipIf(!hasTestDatabase)('durable monitoring and automatic audit', () =
     expect(await events()).toEqual(['opened', 'resolved']);
   });
 
+  it('resolves a deleted stalled bot on the next scan without changing other incidents or immutable events', async () => {
+    const deleted = await bot();
+    const other = await bot();
+    await age(deleted);
+    await age(other);
+    await observeHealth(pool, 'rpc_unhealthy', 'solana', true, 'http');
+    await scanBotHealth(pool);
+    const prior = (await pool.query('SELECT * FROM monitoring_events ORDER BY id')).rows;
+    expect(prior).toHaveLength(3);
+    const incident = (
+      await pool.query<{ id: string }>(
+        "SELECT id FROM monitoring_incidents WHERE category = 'bot_stalled' AND entity_id = $1",
+        [deleted],
+      )
+    ).rows[0]!;
+    await pool.query('DELETE FROM bots WHERE id = $1', [deleted]);
+    expect(
+      (await pool.query('SELECT * FROM bot_heartbeats WHERE bot_id = $1', [deleted])).rowCount,
+    ).toBe(0);
+    await scanBotHealth(pool);
+    const after = (await pool.query('SELECT * FROM monitoring_events ORDER BY id')).rows;
+    expect(after.slice(0, prior.length)).toEqual(prior);
+    expect(after).toHaveLength(4);
+    expect(after[3]).toMatchObject({
+      incident_id: incident.id,
+      transition: 'resolved',
+      code: 'heartbeat_stale',
+    });
+    const open = (await monitoringHealth(pool)).incidents;
+    expect(open.map((row) => row.entity_id).sort()).toEqual([other, 'solana'].sort());
+    expect(
+      (
+        await pool.query('SELECT resolved_at FROM monitoring_incidents WHERE id = $1', [
+          incident.id,
+        ])
+      ).rows[0].resolved_at,
+    ).not.toBeNull();
+    await scanBotHealth(pool);
+    expect((await pool.query('SELECT * FROM monitoring_events')).rowCount).toBe(4);
+  });
+
   it('outbox retries after a failed sink and restart, with durable recovery and a new incident on relapse', async () => {
     await observeHealth(pool, 'rpc_unhealthy', 'solana', true, 'http');
     await observeHealth(pool, 'rpc_unhealthy', 'solana', true, 'timeout');

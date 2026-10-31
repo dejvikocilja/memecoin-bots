@@ -28,7 +28,9 @@ than **40 seconds**, or a bot with no first heartbeat 40 seconds after becoming
 expected, opens one `bot_stalled` incident. Repeated observations update the same
 incident; fresh progress resolves it. A later stall creates a new incident. Mode
 `off` and an explicit graceful engine shutdown disable the expectation and resolve
-an existing incident on the next observer poll. A crash does not disable it.
+an existing incident on the next observer poll. Deleting a bot also resolves its
+incident on the next scan while preserving prior incident events. A crash does not
+disable the expectation.
 Switching an off bot back to paper creates a fresh expectation; start/restart its
 engine to acquire it.
 
@@ -46,8 +48,12 @@ therefore proves only that the engine event loop and this policy-read tick work.
 Future bot runtimes must inject and await their actual work via `ManagedBotTick`
 and `publishBotProgress`, and honor the cancellation signal. The publisher runs
 only after the awaited tick completes; a failed or stuck tick cannot refresh it.
-Ticks have a five-second deadline, never overlap, and stop cancellation suppresses
-late progress. The deadline cannot forcibly stop a misbehaving future adapter's
+Ticks have a five-second observation deadline. A timed-out bot remains quarantined
+until its underlying tick settles; later polls (including after stop/start of the
+same runtime) cannot overlap it or mask it with a second successful tick. Late
+completion cannot publish progress, and the next poll can retry after it settles.
+Shutdown cancels observation without waiting for an adapter which ignores abort.
+The deadline cannot forcibly stop a misbehaving future adapter's
 side effects; adapters must honor cancellation before making state changes.
 
 The watchdog's bot polling is independent of its RPC polling. Its DB calls have a

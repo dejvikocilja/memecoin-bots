@@ -26,22 +26,39 @@ export function createBotRuntime(options: {
   const ownerId = randomUUID();
   let leases: BotLease[] = [];
   let started = false;
+  // The deadline cancels observation, not an adapter's underlying promise. Keep a
+  // timed-out bot quarantined until that promise settles, including across stop/start.
+  const pendingTicks = new Map<string, Promise<void>>();
   const discoveryFailures = new Set<'transport' | 'rpc'>();
   let discoveryObserved = false;
   const loop = createPollingLoop(
     async (signal) => {
       for (const lease of leases) {
+        if (pendingTicks.has(lease.botId)) continue;
         try {
           await withinDeadline(
-            async (tickSignal) => {
-              const bot = await options.pool.query<{ mode: string }>(
-                'SELECT mode FROM bots WHERE id = $1',
-                [lease.botId],
-              );
-              if (bot.rows[0]?.mode !== 'paper') return;
-              if (options.tick) await options.tick(lease.botId, tickSignal);
-              tickSignal.throwIfAborted();
-              await publishBotProgress(options.pool, lease, options.tick ? 'strategy' : 'scaffold');
+            (tickSignal) => {
+              const work = (async () => {
+                const bot = await options.pool.query<{ mode: string }>(
+                  'SELECT mode FROM bots WHERE id = $1',
+                  [lease.botId],
+                );
+                if (bot.rows[0]?.mode !== 'paper') return;
+                tickSignal.throwIfAborted();
+                if (options.tick) await options.tick(lease.botId, tickSignal);
+                tickSignal.throwIfAborted();
+                await publishBotProgress(
+                  options.pool,
+                  lease,
+                  options.tick ? 'strategy' : 'scaffold',
+                );
+              })();
+              pendingTicks.set(lease.botId, work);
+              const clear = () => {
+                if (pendingTicks.get(lease.botId) === work) pendingTicks.delete(lease.botId);
+              };
+              void work.then(clear, clear);
+              return work;
             },
             signal,
             5_000,

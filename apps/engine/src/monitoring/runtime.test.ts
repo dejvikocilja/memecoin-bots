@@ -63,6 +63,54 @@ describe('engine managed progress wiring', () => {
     expect(vi.getTimerCount()).toBe(0);
   });
 
+  it('quarantines a never-settling tick across multiple polls and stop/start while keeping shutdown bounded', async () => {
+    vi.useFakeTimers();
+    const tick = vi.fn(() => new Promise<void>(() => {}));
+    const { runtime, query } = setup(tick);
+    await runtime.start();
+    await vi.advanceTimersByTimeAsync(40_000);
+    expect(tick).toHaveBeenCalledTimes(1);
+    expect(query).toHaveBeenCalledTimes(1);
+    expect(publishBotProgress).not.toHaveBeenCalled();
+    await runtime.stop(); // Does not await the adapter which ignored its aborted signal.
+    expect(releaseBotLeases).toHaveBeenCalledTimes(1);
+    expect(vi.getTimerCount()).toBe(0);
+    await runtime.start();
+    await vi.advanceTimersByTimeAsync(20_000);
+    expect(tick).toHaveBeenCalledTimes(1);
+    expect(publishBotProgress).not.toHaveBeenCalled();
+    await runtime.stop();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('suppresses late completion after timeout and retries only once the underlying tick settles', async () => {
+    vi.useFakeTimers();
+    let finish: (() => void) | undefined;
+    const tick = vi
+      .fn<(_: string, signal: AbortSignal) => Promise<void>>()
+      .mockImplementationOnce(
+        () =>
+          new Promise<void>((resolve) => {
+            finish = resolve;
+          }),
+      )
+      .mockResolvedValue(undefined);
+    const { runtime } = setup(tick);
+    await runtime.start();
+    await vi.advanceTimersByTimeAsync(35_000);
+    expect(tick).toHaveBeenCalledTimes(1);
+    expect(tick.mock.calls[0]![1].aborted).toBe(true);
+    expect(publishBotProgress).not.toHaveBeenCalled();
+    finish!();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(publishBotProgress).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(tick).toHaveBeenCalledTimes(2);
+    expect(publishBotProgress).toHaveBeenCalledTimes(1);
+    await runtime.stop();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
   it('publishes honest scaffold progress and persists discovery failure/recovery independent of event frequency', async () => {
     vi.useFakeTimers();
     const { runtime } = setup();
