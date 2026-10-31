@@ -346,6 +346,7 @@ export async function settlePaperAttempt(
   attempt: PaperAttempt,
   candidate: ExecutionResult,
   executionClock: () => number = Date.now,
+  executionStillFresh: () => boolean = () => true,
 ): Promise<ExecutionResult> {
   return withTransaction(pool, async (db) => {
     if (!/^[A-Z0-9_]{1,80}$/.test(candidate.reason)) throw new Error('INVALID_RESULT_REASON');
@@ -411,10 +412,10 @@ export async function settlePaperAttempt(
       priorityFeeLamports: '0',
     });
     if (order.status === 'cancelled') candidate = toZero('CANCELLED', 'cancelled');
-    else if (now < intent.expiresAt && now < attempt.readyAt)
-      throw new Error('LATENCY_NOT_ELAPSED');
     else if (now >= intent.expiresAt) candidate = toZero('INTENT_EXPIRED');
+    else if (!executionStillFresh()) candidate = toZero('MONOTONIC_DEADLINE_EXPIRED');
     else if (now < attempt.startedAt) candidate = toZero('CLOCK_MOVED_BACKWARD');
+    else if (now < attempt.readyAt) throw new Error('LATENCY_NOT_ELAPSED');
     else if (evidence?.status === 'available') {
       const q = evidence.quote;
       if (
@@ -491,12 +492,8 @@ export async function settlePaperAttempt(
       networkFeeLamports: '0',
       priorityFeeLamports: '0',
     });
-    if (order.status === 'cancelled') result = none('CANCELLED', 'cancelled');
-    else if (!['pending', 'partially_filled'].includes(order.status))
+    if (!['pending', 'partially_filled', 'cancelled'].includes(order.status))
       throw new Error('ORDER_NOT_EXECUTABLE');
-    else if (now < intent.expiresAt && now < attempt.readyAt)
-      throw new Error('LATENCY_NOT_ELAPSED');
-    else if (now >= intent.expiresAt) result = none('INTENT_EXPIRED');
     const fills = ['filled', 'partial'].includes(result.status);
     if (fills && (result.inputRaw !== attempt.inputRaw || amount(result.outputRaw) <= 0n))
       throw new Error('RESULT_MISMATCH');
@@ -663,6 +660,7 @@ export async function settlePaperAttempt(
 /** Clock and serialization come from PostgreSQL, not a possibly reset process clock. */
 export async function reservePaperQuoteRequest(pool: Pool): Promise<void> {
   await withTransaction(pool, async (db) => {
+    await db.query("SET LOCAL lock_timeout='2s'; SET LOCAL statement_timeout='2s'");
     await db.query('SELECT pg_advisory_xact_lock(4812270512)');
     const count = await db.query<{ n: string }>(
       "SELECT count(*)::text n FROM paper_execution_requests WHERE requested_at>clock_timestamp()-interval '60 seconds'",
@@ -679,54 +677,40 @@ export async function reservePaperQuoteRequest(pool: Pool): Promise<void> {
   });
 }
 
-/** Exactly one quote acquisition per persisted attempt, including competing processes.
- * A crash after claim is unavailable on recovery; never silently refresh/reroll evidence. */
+/** The immutable claim elects exactly one fetcher without retaining a pool connection.
+ * A competing caller waits at most five seconds for saved evidence; an interrupted
+ * or overlong acquisition becomes unavailable, never an implicit quote refresh. */
 export async function acquirePaperQuote(
   pool: Pool,
   id: string,
   now: number,
   fetchQuote: () => Promise<QuoteEvidence>,
 ): Promise<QuoteEvidence> {
-  const deadline = performance.now() + 5000;
+  integer(now, 1, Number.MAX_SAFE_INTEGER);
+  const existing = await loadPaperQuote(pool, id);
+  if (existing) return existing;
+  // Each query finishes and releases its pooled client before any provider IO.
+  const election = await pool.query(
+    'INSERT INTO paper_execution_quote_claims(attempt_id,claimed_at_ms) VALUES($1,$2) ON CONFLICT DO NOTHING RETURNING attempt_id',
+    [id, now],
+  );
+  if (election.rows.length) return savePaperQuote(pool, id, await fetchQuote());
+  const claim = (
+    await pool.query<{ claimed_at_ms: string }>(
+      'SELECT claimed_at_ms FROM paper_execution_quote_claims WHERE attempt_id=$1',
+      [id],
+    )
+  ).rows[0]!;
+  const age = now - Number(claim.claimed_at_ms);
+  const deadline = performance.now() + Math.max(0, 5000 - Math.max(0, age));
   while (true) {
-    const db = await pool.connect();
-    let locked = false;
-    try {
-      const lock = await db.query<{ locked: boolean }>(
-        'SELECT pg_try_advisory_lock(hashtextextended($1,4812270513)) AS locked',
-        [id],
-      );
-      locked = lock.rows[0]!.locked;
-      if (locked) {
-        const existing = await loadPaperQuote(db, id);
-        if (existing) return existing;
-        const claim = await db.query(
-          'SELECT 1 FROM paper_execution_quote_claims WHERE attempt_id=$1',
-          [id],
-        );
-        if (claim.rows.length)
-          return await savePaperQuote(db, id, {
-            status: 'unavailable',
-            reason: 'QUOTE_ACQUISITION_INTERRUPTED',
-          });
-        await db.query(
-          'INSERT INTO paper_execution_quote_claims(attempt_id,claimed_at_ms) VALUES($1,$2)',
-          [id, integer(now, 1, Number.MAX_SAFE_INTEGER)],
-        );
-        return await savePaperQuote(db, id, await fetchQuote());
-      }
-    } finally {
-      let broken = false;
-      if (locked)
-        try {
-          await db.query('SELECT pg_advisory_unlock(hashtextextended($1,4812270513))', [id]);
-        } catch {
-          broken = true;
-        }
-      db.release(broken);
-    }
-    // Waiters release their pool connection so the winning fetch can reserve its budget.
-    if (performance.now() >= deadline) throw new Error('QUOTE_ACQUISITION_BUSY_RECOVER_SAME_KEY');
+    const saved = await loadPaperQuote(pool, id);
+    if (saved) return saved;
+    if (age < 0 || performance.now() >= deadline)
+      return savePaperQuote(pool, id, {
+        status: 'unavailable',
+        reason: 'QUOTE_ACQUISITION_INTERRUPTED',
+      });
     await delay(10);
   }
 }

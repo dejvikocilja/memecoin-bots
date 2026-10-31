@@ -16,6 +16,7 @@ import {
 } from '../../../apps/engine/src/paper/quote.js';
 import { drawModel } from '../../../apps/engine/src/paper/model.js';
 import {
+  acquirePaperQuote,
   inspectPaperOrder,
   loadPaperIntent,
   preparePaperAttempt,
@@ -26,6 +27,7 @@ import {
 } from './paper-execution.js';
 import { loadMigrations, migrateDown, migrateUp, migrationStatus } from './migrate.js';
 import { createTestPool, hasTestDatabase, resetDatabase, TEST_DATABASE_URL } from './test-db.js';
+import { createPool } from './pool.js';
 const MINT = 'DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263';
 const SOL = 'So11111111111111111111111111111111111111112';
 const model: PaperModel = {
@@ -168,6 +170,7 @@ describe.skipIf(!hasTestDatabase)('durable paper execution', () => {
   ) {
     return new PaperBroker(pool, p, m, {
       clock: () => now,
+      monotonicClock: () => now,
       sleep:
         sleep ??
         (async (ms) => {
@@ -327,7 +330,7 @@ describe.skipIf(!hasTestDatabase)('durable paper execution', () => {
         const result = await executing;
         expect(result.status).toBe('failed');
         expect(result.reason).toBe(
-          expiry === 'intent' ? 'INTENT_EXPIRED' : 'QUOTE_EXPIRED_OR_CHAIN_CONTEXT_UNAVAILABLE',
+          expiry === 'intent' ? 'INTENT_EXPIRED' : 'MONOTONIC_DEADLINE_EXPIRED',
         );
         expect((await state(botId)).balance).toBe('10000');
         expect((await state(botId)).fills).toHaveLength(0);
@@ -337,6 +340,85 @@ describe.skipIf(!hasTestDatabase)('durable paper execution', () => {
       }
     },
   );
+  it.each(['stall', 'backstep'] as const)(
+    'monotonic quote deadline denies a UTC %s during latency',
+    async (behavior) => {
+      const botId = await seed('10000');
+      const o = await order(botId, {
+        quoteRequirements: {
+          freshnessPolicy: 'bounded_request_age',
+          maxAgeMs: 100,
+          maxSlotLag: 20,
+          fullyObservedCosts: false,
+        },
+      });
+      let mono = 1000;
+      const b = new PaperBroker(pool, provider(), model, {
+        clock: () => now,
+        monotonicClock: () => mono,
+        seed: () => 'a'.repeat(64),
+        sleep: async (ms) => {
+          now += behavior === 'stall' ? ms : -1;
+          mono += 400;
+        },
+      });
+      const result = await b.execute(o, 'monotonic-latency');
+      expect(result).toMatchObject({
+        status: 'failed',
+        reason: 'MONOTONIC_DEADLINE_EXPIRED',
+        networkFeeLamports: '0',
+      });
+      expect((await state(botId)).fills).toHaveLength(0);
+      expect((await state(botId)).balance).toBe('10000');
+    },
+  );
+  it('monotonic quote deadline is checked again AFTER settlement lock waits while UTC stalls', async () => {
+    const botId = await seed('10000');
+    const o = await order(botId, {
+      quoteRequirements: {
+        freshnessPolicy: 'bounded_request_age',
+        maxAgeMs: 100,
+        maxSlotLag: 20,
+        fullyObservedCosts: false,
+      },
+    });
+    let mono = 1000;
+    const blocker = await pool.connect();
+    let ready!: () => void;
+    const locked = new Promise<void>((resolve) => {
+      ready = resolve;
+    });
+    try {
+      const b = new PaperBroker(pool, provider(), model, {
+        clock: () => now,
+        monotonicClock: () => mono,
+        seed: () => 'a'.repeat(64),
+        sleep: async (ms) => {
+          now += ms;
+          mono += ms;
+          await blocker.query('BEGIN');
+          await blocker.query('SELECT id FROM bots WHERE id=$1 FOR UPDATE', [botId]);
+          ready();
+        },
+      });
+      const executing = b.execute(o, 'monotonic-lock');
+      await locked;
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      mono += 400;
+      await blocker.query('COMMIT');
+      const result = await executing;
+      expect(result).toMatchObject({
+        status: 'failed',
+        reason: 'MONOTONIC_DEADLINE_EXPIRED',
+        networkFeeLamports: '0',
+      });
+      expect((await state(botId)).fills).toHaveLength(0);
+      expect((await state(botId)).balance).toBe('10000');
+    } finally {
+      await blocker.query('ROLLBACK');
+      blocker.release();
+    }
+  });
   it('old partial buy cannot attach to a later position after its original holding closes', async () => {
     const botId = await seed('10000');
     const a = await order(botId);
@@ -527,7 +609,7 @@ describe.skipIf(!hasTestDatabase)('durable paper execution', () => {
       await order(botId),
       'stale',
     );
-    expect(result.reason).toBe('QUOTE_EXPIRED_OR_CHAIN_CONTEXT_UNAVAILABLE');
+    expect(result.reason).toBe('MONOTONIC_DEADLINE_EXPIRED');
     expect((await state(botId)).balance).toBe('10000');
   });
   it('submitted failure cannot charge an order that could not afford its principal', async () => {
@@ -654,7 +736,7 @@ describe.skipIf(!hasTestDatabase)('durable paper execution', () => {
     );
     await pool.query(
       'INSERT INTO paper_execution_quote_claims(attempt_id,claimed_at_ms) VALUES($1,$2)',
-      [attempt.id, now],
+      [attempt.id, now - 5001],
     );
     let calls = 0;
     const source = provider();
@@ -673,6 +755,69 @@ describe.skipIf(!hasTestDatabase)('durable paper execution', () => {
     expect(calls).toBe(0);
     expect(await b.execute(o, 'claim')).toEqual(result);
   });
+  it.each([1, 2])(
+    'distinct quote attempts with pool max%s cannot deadlock the durable budget',
+    async (max) => {
+      const small = createPool(TEST_DATABASE_URL, { max });
+      try {
+        const botId = await seed('10000');
+        const orders = await Promise.all([order(botId), order(botId)]);
+        const randomSeed = 'a'.repeat(64);
+        const attempts = await Promise.all(
+          orders.map((o, index) =>
+            preparePaperAttempt(
+              small,
+              o,
+              `pool-${max}-${index}`,
+              model,
+              randomSeed,
+              drawModel(randomSeed, model),
+              now,
+            ),
+          ),
+        );
+        let entered = 0;
+        let bothEntered!: () => void;
+        const ready = new Promise<void>((resolve) => {
+          bothEntered = resolve;
+        });
+        const work = Promise.all(
+          attempts.map((attempt) =>
+            acquirePaperQuote(small, attempt.id, now, async () => {
+              if (++entered === 2) bothEntered();
+              await ready;
+              try {
+                await reservePaperQuoteRequest(small);
+                return { status: 'unavailable', reason: 'TEST_QUOTE_COMPLETE' } as const;
+              } catch {
+                return { status: 'unavailable', reason: 'TEST_QUOTE_BUDGET_DENIED' } as const;
+              }
+            }),
+          ),
+        );
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        const results = await Promise.race([
+          work,
+          new Promise<never>((_, reject) => {
+            timer = setTimeout(() => reject(new Error('QUOTE_POOL_DEADLOCK')), 3000);
+          }),
+        ]).finally(() => clearTimeout(timer));
+        expect(entered).toBe(2);
+        expect(results.map((r) => r.status)).toEqual(['unavailable', 'unavailable']);
+        expect(
+          results.filter((r) => r.status === 'unavailable' && r.reason === 'TEST_QUOTE_COMPLETE'),
+        ).toHaveLength(1);
+        expect(small.waitingCount).toBe(0);
+        expect(small.idleCount).toBe(small.totalCount);
+        expect((await pool.query('SELECT * FROM paper_execution_quote_claims')).rows).toHaveLength(
+          2,
+        );
+        expect((await pool.query('SELECT * FROM paper_execution_quotes')).rows).toHaveLength(2);
+      } finally {
+        await small.end();
+      }
+    },
+  );
   it('durable 20rpm quote/RPC budget survives a new caller', async () => {
     await pool.query(
       "INSERT INTO paper_execution_requests(requested_at) SELECT clock_timestamp()-(s*interval '2 seconds') FROM generate_series(1,19) s",

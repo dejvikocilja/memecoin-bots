@@ -84,16 +84,20 @@ extra adverse slippage once, rounding output down. The effective minimum is the
 maximum of the provider threshold and the approved minimum rounded up. Equality
 passes; output below the effective minimum fails before hypothetical submission.
 
-HTTP timeout is two seconds, also checked with a monotonic clock. Quote lifetime is
+HTTP timeout is two seconds, also checked with a monotonic clock. An in-process
+monotonic deadline also covers quote acquisition, simulated latency and settlement
+lock waits. It starts conservatively from the execution call, and is rechecked after
+all settlement locks. A stalled/backward UTC clock cannot extend that process lifetime. Quote lifetime is
 at most five seconds from **request start**, bounded by the selected maximum age,
 order expiry and any explicit provider expiry. Freshness is checked again after
 simulated latency. Backward/future clocks or elapsed deadlines fail closed; persisted
 UTC deadlines permit conservative restart recovery. These timing limits are
 engineering assumptions, not measured distributions or proof upstream data is fresh.
 The CLI's durable PostgreSQL budget caps quote requests at 20/minute with at least
-two seconds between requests, including across restarts/concurrent CLI processes. The CLI pool has two connections;
-a caller sharing its pool with the durable request-budget adapter must provide at
-least two connections, because quote acquisition retains one connection.
+two seconds between requests, including across restarts/concurrent CLI processes. Quote acquisition retains no
+pooled connection during provider IO, so the durable budget also works with a single
+connection. A competing caller waits at most five seconds for the elected fetcher;
+an interrupted or overlong claim becomes unavailable rather than triggering another fetch.
 Denied requests do not retry in the background.
 
 ## Accounting and model

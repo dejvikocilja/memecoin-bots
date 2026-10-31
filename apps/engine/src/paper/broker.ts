@@ -28,6 +28,7 @@ export class PaperBroker implements Executor {
     model: PaperModel,
     private readonly runtime: {
       clock?: () => number;
+      monotonicClock?: () => number;
       sleep?: (ms: number) => Promise<void>;
       seed?: () => string;
       signal?: AbortSignal;
@@ -47,6 +48,25 @@ export class PaperBroker implements Executor {
     const intent = JSON.parse(JSON.stringify(input)) as ApprovedOrderIntent;
     validatePaperIntent(intent);
     const clock = this.runtime.clock ?? Date.now;
+    const monotonicClock = this.runtime.monotonicClock ?? (() => performance.now());
+    const startedUtc = clock();
+    const startedMono = monotonicClock();
+    if (!Number.isFinite(startedMono) || startedMono < 0)
+      throw new Error('INVALID_MONOTONIC_CLOCK');
+    let lastMono = startedMono;
+    let invalidMonotonic = false;
+    let monotonicDeadline = startedMono + Math.max(0, intent.expiresAt - startedUtc);
+    const monotonicNow = (): number => {
+      const sample = monotonicClock();
+      if (invalidMonotonic || !Number.isFinite(sample) || sample < lastMono) {
+        invalidMonotonic = true;
+        return Number.POSITIVE_INFINITY;
+      }
+      lastMono = sample;
+      return sample;
+    };
+    const stillFresh = (): boolean => monotonicNow() < monotonicDeadline;
+
     const seed = (this.runtime.seed ?? (() => randomBytes(32).toString('hex')))();
     const attempt = await preparePaperAttempt(
       this.pool,
@@ -71,7 +91,18 @@ export class PaperBroker implements Executor {
         return { status: 'unavailable', reason: 'INVALID_QUOTE_EVIDENCE' };
       }
     });
-    const wait = attempt.readyAt - clock();
+    if (evidence.status === 'available') {
+      // Start from this call's earliest monotonic observation, conservatively including
+      // DB/quote acquisition time; persisted UTC bounds recovery in a new process.
+      const q = evidence.quote;
+      monotonicDeadline = Math.min(
+        monotonicDeadline,
+        startedMono + Math.max(0, q.expiresAt - q.requestStartedAt),
+        monotonicNow() + Math.max(0, q.expiresAt - clock()),
+      );
+    }
+    const monotonicReadyAt = startedMono + Math.max(0, attempt.readyAt - startedUtc);
+    const wait = Math.max(attempt.readyAt - clock(), monotonicReadyAt - monotonicNow());
     if (wait > 0) {
       if (this.runtime.sleep) await this.runtime.sleep(wait);
       else await delay(wait, undefined, { signal: this.runtime.signal });
@@ -106,7 +137,9 @@ export class PaperBroker implements Executor {
           ? await this.provider.currentContext()
           : undefined;
       const now = clock();
-      if (!valid) result = { ...zero, reason: 'INVALID_QUOTE_EVIDENCE' };
+      if (!stillFresh())
+        result = { ...zero, status: 'failed', reason: 'MONOTONIC_DEADLINE_EXPIRED' };
+      else if (!valid) result = { ...zero, reason: 'INVALID_QUOTE_EVIDENCE' };
       else if (!quoteIsFresh(saved.quote, intent, current, now))
         result = {
           ...zero,
@@ -144,7 +177,7 @@ export class PaperBroker implements Executor {
           };
       }
     }
-    return settlePaperAttempt(this.pool, attempt, result, clock);
+    return settlePaperAttempt(this.pool, attempt, result, clock, stillFresh);
   }
 }
 
