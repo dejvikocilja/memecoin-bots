@@ -23,6 +23,8 @@ const columns = {
 } as const satisfies Record<keyof RiskProfileConfig, string>;
 
 const select = `id, revision::text, ${RISK_PROFILE_FIELDS.map((key) => `${columns[key]} AS "${key}"`).join(', ')}`;
+const selectForEdit = `${select}, take_profit_ladder::text AS "ladderJson"`;
+type ProfileForEdit = RiskProfile & { readonly ladderJson: string };
 
 export async function listRiskProfiles(db: Queryable): Promise<RiskProfile[]> {
   return (await db.query<RiskProfile>(`SELECT ${select} FROM risk_profiles ORDER BY id`)).rows;
@@ -65,9 +67,10 @@ export async function updateRiskProfile(
   }
   return withTransaction(pool, async (db) => {
     const before = (
-      await db.query<RiskProfile>(`SELECT ${select} FROM risk_profiles WHERE id = $1 FOR UPDATE`, [
-        id,
-      ])
+      await db.query<ProfileForEdit>(
+        `SELECT ${selectForEdit} FROM risk_profiles WHERE id = $1 FOR UPDATE`,
+        [id],
+      )
     ).rows[0];
     if (!before) throw new Error('Risk profile not found');
     if (before.revision !== options.expectedRevision) throw new RiskProfileConflictError();
@@ -75,26 +78,33 @@ export async function updateRiskProfile(
     const merged = { ...config, ...changes };
     const errors = validateRiskProfile(merged);
     if (errors.length > 0) throw new Error(`Invalid risk profile: ${errors.join('; ')}`);
-    const values = RISK_PROFILE_FIELDS.map((key) =>
+    // Only write explicit mutations. Re-serializing an untouched JSON ladder would
+    // round any legacy PostgreSQL numeric precision through JavaScript numbers.
+    const changedFields = RISK_PROFILE_FIELDS.filter((key) => Object.hasOwn(changes, key));
+    const values = changedFields.map((key) =>
       key === 'takeProfitLadder' ? JSON.stringify(merged[key]) : merged[key],
     );
-    const assignments = RISK_PROFILE_FIELDS.map(
-      (key, index) => `${columns[key]} = $${index + 2}`,
-    ).join(', ');
+    const assignments = changedFields
+      .map((key, index) => `${columns[key]} = $${index + 2}`)
+      .join(', ');
     const after = (
-      await db.query<RiskProfile>(
-        `UPDATE risk_profiles SET ${assignments} WHERE id = $1 RETURNING ${select}`,
+      await db.query<ProfileForEdit>(
+        `UPDATE risk_profiles SET ${assignments} WHERE id = $1 RETURNING ${selectForEdit}`,
         [id, ...values],
       )
     ).rows[0]!;
     // Public policy only: omit free-form display name; never copy arbitrary input.
-    const policy = (profile: RiskProfile) =>
+    const policy = (profile: ProfileForEdit) =>
       Object.fromEntries(
         RISK_PROFILE_FIELDS.filter((key) => key !== 'displayName').map((key) => [
           key,
-          typeof profile[key] === 'string' && profile[key].length > 80
-            ? '[omitted: exceeds policy input bound]'
-            : profile[key],
+          key === 'takeProfitLadder'
+            ? profile.ladderJson.length <= 32768
+              ? profile.ladderJson
+              : '[omitted: exceeds audit ladder bound]'
+            : typeof profile[key] === 'string' && profile[key].length > 80
+              ? '[omitted: exceeds policy input bound]'
+              : profile[key],
         ]),
       );
     await recordAudit(db, {
@@ -109,6 +119,11 @@ export async function updateRiskProfile(
         after: policy(after),
       },
     });
-    return after;
+    // The exact SQL JSON representation is audit metadata, not a DTO field.
+    return Object.fromEntries([
+      ['id', after.id],
+      ['revision', after.revision],
+      ...RISK_PROFILE_FIELDS.map((key) => [key, after[key]]),
+    ]) as unknown as RiskProfile;
   });
 }

@@ -82,8 +82,12 @@ configuration with core `validateRiskProfile` for detailed policy errors.
 
 The edit and `risk_profile.edit_applied` audit event commit together; audit failure
 rolls the edit back. Audit records contain bounded known policy fields, revision
-and actor, omitting the free-form display name. This event describes the owner
-service command; future BOT-12 database canonical mutation events are complementary.
+and actor, omitting the free-form display name. Ladders in audit records use exact
+PostgreSQL JSON text (up to 32 KiB, otherwise an explicit omission marker),
+preserving legacy decimal precision.
+Partial edits write only supplied fields, so untouched ladder precision is retained.
+This event describes the owner service command; future BOT-12 database canonical
+mutation events are complementary.
 Raw SQL enforces the main numeric, safety, finite and ladder invariants, but should
 not be used for routine edits because it bypasses this service's command audit.
 

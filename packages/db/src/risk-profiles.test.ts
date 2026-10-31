@@ -192,6 +192,35 @@ describe.skipIf(!hasTestDatabase)('editable risk profiles', () => {
     expect((await pool.query('SELECT * FROM audit_log')).rowCount).toBe(1);
   });
 
+  it('preserves untouched SQL ladder precision through an unrelated partial edit and audit', async () => {
+    await pool.query(`UPDATE risk_profiles SET take_profit_ladder =
+      '[{"atGain":0.30000000000000001,"sellFraction":0.40000000000000001},
+        {"atGain":0.60000000000000001,"sellFraction":0.30000000000000001}]'
+      WHERE id = 'balanced'`);
+    const rawLadder = async () =>
+      (
+        await pool.query<{ ladder: string }>(
+          "SELECT take_profit_ladder::text AS ladder FROM risk_profiles WHERE id = 'balanced'",
+        )
+      ).rows[0]!.ladder;
+    const original = await rawLadder();
+    const after = await updateRiskProfile(
+      pool,
+      'balanced',
+      { maxHoldMinutes: 361 },
+      { expectedRevision: '2', actor: 'owner' },
+    );
+    expect(after.maxHoldMinutes).toBe(361);
+    expect(after.revision).toBe('3');
+    expect(after).not.toHaveProperty('ladderJson');
+    expect(await rawLadder()).toBe(original);
+    const { rows } = await pool.query<{
+      details: { before: { takeProfitLadder: string }; after: { takeProfitLadder: string } };
+    }>('SELECT details FROM audit_log');
+    expect(rows[0]?.details.before.takeProfitLadder).toBe(original);
+    expect(rows[0]?.details.after.takeProfitLadder).toBe(original);
+  });
+
   it('bounds audit data when repairing an oversized legacy decimal', async () => {
     await pool.query("UPDATE risk_profiles SET min_liquidity_usd = $1 WHERE id = 'balanced'", [
       '1'.repeat(100),
@@ -283,8 +312,12 @@ describe.skipIf(!hasTestDatabase)('editable risk profiles', () => {
       { minLiquidityUsd: '123456.1234567890123456789' },
       { expectedRevision: '1', actor: 'owner' },
     );
+    // Public-only fixture for compatibility with the BOT-8 exactly-one-wallet constraint.
+    const wallet = await pool.query<{ id: string }>(`INSERT INTO wallets(label, public_key)
+      VALUES ('test-owned-wallet', '9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM') RETURNING id`);
     await pool.query(
-      "INSERT INTO bots(name, strategy, risk_profile_id) VALUES ('test', 'momentum', 'balanced')",
+      "INSERT INTO bots(name, strategy, risk_profile_id, wallet_id) VALUES ('test', 'momentum', 'balanced', $1)",
+      [wallet.rows[0]!.id],
     );
     expect(await migrateUp(pool)).toEqual([]);
     expect((await migrationStatus(pool)).every((m) => m.appliedAt !== null)).toBe(true);
