@@ -1,0 +1,21 @@
+{
+  "name": "@memebots/core",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Shared domain types and constants: bot modes, risk profile names, strategy signals.",
+  "type": "module",
+  "exports": {
+    ".": {
+      "@memebots/source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  }
+}

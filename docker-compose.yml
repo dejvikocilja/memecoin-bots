@@ -1,0 +1,16 @@
+# Optional local PostgreSQL (ADR-1: native PostgreSQL is fine too).
+services:
+  postgres:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: memebots
+      POSTGRES_PASSWORD: memebots
+      POSTGRES_DB: memebots
+    ports:
+      - '127.0.0.1:5432:5432'
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+volumes:
+  pgdata:
