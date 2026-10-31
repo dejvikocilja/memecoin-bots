@@ -16,6 +16,8 @@ const EXPECTED_TABLES = [
   'token_safety_leases',
   'token_safety_snapshots',
   'tokens',
+  'wallet_reservations',
+  'wallet_spend_state',
   'wallets',
 ];
 
