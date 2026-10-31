@@ -1,0 +1,42 @@
+{
+  "tokenMint": "DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263",
+  "decimals": 5,
+  "amountInRaw": "1000000",
+  "bankrollLamports": "1000000000",
+  "maxSlippageBps": 300,
+  "expiresInMs": 60000,
+  "quoteRequirements": {
+    "maxAgeMs": 5000,
+    "maxSlotLag": 20,
+    "fullyObservedCosts": false,
+    "freshnessPolicy": "bounded_request_age"
+  },
+  "entry": {
+    "stopPriceSol": "0.0000001",
+    "takeProfit": [
+      {
+        "atGain": 0.3,
+        "sellFraction": 0.4
+      },
+      {
+        "atGain": 0.6,
+        "sellFraction": 0.3
+      }
+    ]
+  },
+  "model": {
+    "version": "paper-v1",
+    "minLatencyMs": 100,
+    "maxLatencyMs": 500,
+    "adverseSlippageBps": 100,
+    "failureProbability": 0,
+    "failureStage": "submitted",
+    "partialFillBps": 10000,
+    "fees": {
+      "provenance": "MODEL",
+      "selectedBy": "owner-demo",
+      "networkLamports": "5000",
+      "priorityLamports": "1000"
+    }
+  }
+}
