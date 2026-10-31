@@ -234,7 +234,7 @@ describe.skipIf(!hasTestDatabase)('durable monitoring and automatic audit', () =
       [id, JSON.stringify({ password: 'arbitrary-secret', endpoint: 'https://token.example' })],
     );
     await pool.query(
-      'UPDATE risk_profiles SET position_fraction = .03, take_profit_ladder = \'[{"atGain":1,"sellFraction":0.5,"password":"arbitrary-secret"}]\' WHERE id = \'test_profile\'',
+      'UPDATE risk_profiles SET position_fraction = .03, take_profit_ladder = \'[{"atGain":1,"sellFraction":0.5}]\' WHERE id = \'test_profile\'',
     );
     await pool.query(
       "INSERT INTO wallets(label,public_key,spend_cap_lamports) VALUES('arbitrary-secret', $1, 10)",
