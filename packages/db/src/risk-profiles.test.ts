@@ -1,6 +1,6 @@
 import { afterAll, beforeEach, describe, expect, it } from 'vitest';
 
-import { migrateDown, migrateUp, migrationStatus } from './migrate.js';
+import { loadMigrations, migrateDown, migrateUp, migrationStatus } from './migrate.js';
 import { createPool } from './pool.js';
 import {
   getRiskProfile,
@@ -159,7 +159,7 @@ describe.skipIf(!hasTestDatabase)('editable risk profiles', () => {
       actor: string;
       action: string;
       details: Record<string, unknown>;
-    }>('SELECT actor, action, details FROM audit_log');
+    }>("SELECT actor, action, details FROM audit_log WHERE action = 'risk_profile.edit_applied'");
     expect(rows).toHaveLength(1);
     expect(rows[0]).toMatchObject({
       actor: 'owner',
@@ -189,7 +189,10 @@ describe.skipIf(!hasTestDatabase)('editable risk profiles', () => {
     expect(rejected?.status === 'rejected' && rejected.reason).toBeInstanceOf(
       RiskProfileConflictError,
     );
-    expect((await pool.query('SELECT * FROM audit_log')).rowCount).toBe(1);
+    expect(
+      (await pool.query("SELECT * FROM audit_log WHERE action = 'risk_profile.edit_applied'"))
+        .rowCount,
+    ).toBe(1);
   });
 
   it('preserves untouched SQL ladder precision through an unrelated partial edit and audit', async () => {
@@ -216,7 +219,7 @@ describe.skipIf(!hasTestDatabase)('editable risk profiles', () => {
     expect(await rawLadder()).toBe(original);
     const { rows } = await pool.query<{
       details: { before: { takeProfitLadder: string }; after: { takeProfitLadder: string } };
-    }>('SELECT details FROM audit_log');
+    }>("SELECT details FROM audit_log WHERE action = 'risk_profile.edit_applied'");
     expect(rows[0]?.details.before.takeProfitLadder).toBe(original);
     expect(rows[0]?.details.after.takeProfitLadder).toBe(original);
   });
@@ -232,7 +235,7 @@ describe.skipIf(!hasTestDatabase)('editable risk profiles', () => {
       { expectedRevision: '2', actor: 'owner' },
     );
     const { rows } = await pool.query<{ details: { before: { minLiquidityUsd: string } } }>(
-      'SELECT details FROM audit_log',
+      "SELECT details FROM audit_log WHERE action = 'risk_profile.edit_applied'",
     );
     expect(rows[0]?.details.before.minLiquidityUsd).toBe('[omitted: exceeds policy input bound]');
   });
@@ -262,7 +265,10 @@ describe.skipIf(!hasTestDatabase)('editable risk profiles', () => {
       ),
     ).rejects.toBeInstanceOf(RiskProfileConflictError);
     expect((await getRiskProfile(pool, 'balanced'))?.maxHoldMinutes).toBe(361);
-    expect((await pool.query('SELECT * FROM audit_log')).rowCount).toBe(0);
+    expect(
+      (await pool.query("SELECT * FROM audit_log WHERE action = 'risk_profile.edit_applied'"))
+        .rowCount,
+    ).toBe(0);
   });
 
   it('rolls policy and revision back when its audit cannot be persisted', async () => {
@@ -321,9 +327,14 @@ describe.skipIf(!hasTestDatabase)('editable risk profiles', () => {
     );
     expect(await migrateUp(pool)).toEqual([]);
     expect((await migrationStatus(pool)).every((m) => m.appliedAt !== null)).toBe(true);
-    expect(await migrateDown(pool)).toEqual(['0010']);
+    const laterVersions = (await loadMigrations())
+      .filter((m) => m.version > '0010')
+      .map((m) => m.version);
+    expect(await migrateDown(pool, laterVersions.length + 1)).toEqual(
+      [...laterVersions].reverse().concat('0010'),
+    );
     expect((await pool.query('SELECT * FROM risk_profiles')).rowCount).toBe(4);
-    expect(await migrateUp(pool)).toEqual(['0010']);
+    expect(await migrateUp(pool)).toEqual(['0010', ...laterVersions]);
     expect(await getRiskProfile(pool, 'balanced')).toMatchObject({
       minLiquidityUsd: '123456.1234567890123456789',
       safetyMode: 'standard',
