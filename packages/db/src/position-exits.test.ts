@@ -619,4 +619,63 @@ describe.skipIf(!hasTestDatabase)('durable position exits', () => {
     expect((await state(id)).remaining_raw).toBe('0');
     expect(await exitAuthorityValid(pool, d.intent!)).toBe(false);
   });
+  it.each(['0.000004', '0.000005'])(
+    'valid sell proceeds %s at or below MODEL fees still trigger and fill the protective exit',
+    async (price) => {
+      const { id } = await seed({ bankroll: '10000000000' });
+      const outcome = (await new PositionExitManager(pool, provider(price)).once())[0]!;
+      expect(outcome.result).toMatchObject({
+        status: 'filled',
+        networkFeeLamports: '5000',
+        outputRaw: price === '0.000004' ? '4000' : '5000',
+      });
+      const saved = await state(id);
+      expect(saved.status).toBe('closed');
+      expect(saved.close_reason).toBe('stop_loss');
+      expect(saved.high_n).toBe('0');
+      expect(saved.high_d).toBe('1');
+      const observations = (
+        await pool.query('SELECT evidence FROM position_exit_observations WHERE position_id=$1', [
+          id,
+        ])
+      ).rows;
+      expect(observations).toHaveLength(1);
+      expect(observations[0]!.evidence.numerator).toBe('0');
+      expect(saved.filled_steps).toEqual(['0', '0']);
+    },
+  );
+  it('a later zero-unit TP completion cannot restore an already-filled step, including after restart', async () => {
+    const { id } = await seed({ quantity: '3' });
+    const first = await decision(id, '1.3');
+    expect(first.intent?.amountInRaw).toBe('1');
+    await execute(first);
+    const remaining = async () =>
+      (await pool.query('SELECT take_profit_remaining FROM positions WHERE id=$1', [id])).rows[0]!
+        .take_profit_remaining;
+    expect(await remaining()).toEqual([]);
+    expect((await state(id)).filled_steps).toEqual(['1', '0']);
+    const restarted = createPool(TEST_DATABASE_URL, { max: 1 });
+    try {
+      const dust = await decision(id, '1.6', restarted);
+      expect(dust.intent).toBeUndefined();
+      await releaseExitLease(restarted, dust.p, dust.owner);
+      expect((await state(id)).dust_steps).toEqual([1]);
+      expect(await remaining()).toEqual([]);
+      const again = await decision(id, '1.6', restarted);
+      expect(again.intent).toBeUndefined();
+      await releaseExitLease(restarted, again.p, again.owner);
+      expect(await remaining()).toEqual([]);
+      expect((await state(id)).filled_steps).toEqual(['1', '0']);
+      expect(
+        (
+          await pool.query("SELECT * FROM audit_log WHERE action='exit.tp_dust' AND entity_id=$1", [
+            id,
+          ])
+        ).rows,
+      ).toHaveLength(1);
+      expect((await pool.query('SELECT * FROM fills')).rows).toHaveLength(1);
+    } finally {
+      await restarted.end();
+    }
+  });
 });

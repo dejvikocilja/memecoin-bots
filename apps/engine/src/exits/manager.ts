@@ -97,8 +97,9 @@ export class PositionExitManager {
         : undefined;
     if (!quoteIsFresh(evidence.quote, intent, current, (this.options.clock ?? Date.now)())) return;
     // A fixed, explicitly MODEL allowance is stored with each policy, independent of a caller's model.
-    const net = BigInt(evidence.quote.outputRaw) - BigInt(p.policy.priceFeeAllowanceLamports);
-    if (net <= 0n) return;
+    const afterFees = BigInt(evidence.quote.outputRaw) - BigInt(p.policy.priceFeeAllowanceLamports);
+    // A valid deeply adverse quote remains a protective mark even if fees consume its proceeds.
+    const net = afterFees > 0n ? afterFees : 0n;
     return {
       positionId: p.id,
       tokenMint: p.token_mint,

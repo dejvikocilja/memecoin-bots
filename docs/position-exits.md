@@ -33,6 +33,9 @@ or invented SOL conversion is used. Bounded request age is at most five seconds;
 Jupiter receipt/request time is explicitly MODEL and **does not prove source
 freshness**. The quote adapter's strict chain-context policy fails closed when
 unavailable; the initial saved default deliberately selects MODEL request age.
+Valid quotes whose proceeds are at or below the saved fee allowance produce a
+clamped-zero net liquidation mark: they can trigger protection without raising
+high-water, while execution still requires actual quote and fee funding.
 Invalid, delayed, expired, differently sized or unavailable evidence cannot
 advance high-water or trigger a price exit. Accepted observations and provenance
 are append-only, including observations that do not trigger. The high-water mark

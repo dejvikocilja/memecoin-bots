@@ -155,6 +155,20 @@ export async function claimExitPosition(
     return { ...p, generation: claimed.rows[0].lease_generation };
   });
 }
+/** One view derivation for both successful fills and explicit zero-unit completions. */
+function remainingTakeProfit(p: ExitPosition, s: State): ExitPolicy['takeProfit'] {
+  return p.policy.takeProfit.filter((step, i) => {
+    const [n, d] = decimalRatio(step.sellFraction);
+    const desired = (BigInt(s.original_raw ?? p.quantity_raw) * n) / d;
+    return !s.dust_steps.includes(i) && desired > BigInt(s.filled_steps[i] ?? '0');
+  });
+}
+async function persistRemainingTakeProfit(db: Queryable, p: ExitPosition, s: State): Promise<void> {
+  await db.query(
+    "UPDATE positions SET take_profit_remaining=CASE WHEN status='closed' THEN '[]'::jsonb ELSE $2::jsonb END WHERE id=$1",
+    [p.id, JSON.stringify(remainingTakeProfit(p, s))],
+  );
+}
 async function reconcile(db: Queryable, p: ExitPosition, s: State): Promise<void> {
   const rows = (
     await db.query<{
@@ -199,14 +213,7 @@ async function reconcile(db: Queryable, p: ExitPosition, s: State): Promise<void
     });
   }
   s.filled_steps = filled.map(String);
-  const remaining = p.policy.takeProfit.filter((step, i) => {
-    const [n, d] = decimalRatio(step.sellFraction);
-    return (BigInt(s.original_raw ?? p.quantity_raw) * n) / d > BigInt(s.filled_steps[i] ?? '0');
-  });
-  await db.query(
-    "UPDATE positions SET take_profit_remaining=CASE WHEN status='closed' THEN '[]'::jsonb ELSE $2::jsonb END WHERE id=$1",
-    [p.id, JSON.stringify(remaining)],
-  );
+  await persistRemainingTakeProfit(db, p, s);
   await db.query('UPDATE position_exit_state SET filled_steps=$2 WHERE position_id=$1', [
     p.id,
     JSON.stringify(s.filled_steps),
@@ -244,7 +251,7 @@ export async function decidePositionExit(
       observation.positionId === p.id &&
       observation.tokenMint === p.token_mint &&
       observation.inputRaw === p.remaining_raw &&
-      /^[1-9][0-9]{0,79}$/.test(observation.numerator) &&
+      /^(0|[1-9][0-9]{0,79})$/.test(observation.numerator) &&
       /^[1-9][0-9]{0,79}$/.test(observation.denominator) &&
       Number.isSafeInteger(observation.expiresAt) &&
       observation.expiresAt <= observation.observedAt + p.policy.quoteRequirements.maxAgeMs &&
@@ -256,7 +263,7 @@ export async function decidePositionExit(
     ) {
       const n = BigInt(observation.numerator),
         d = BigInt(observation.denominator);
-      if (n > 0n && d > 0n) {
+      if (n >= 0n && d > 0n) {
         mark = [n, d];
         await db.query(
           'INSERT INTO position_exit_observations(position_id,observed_at_ms,evidence) VALUES($1,$2,$3)',
@@ -369,18 +376,14 @@ export async function decidePositionExit(
         entityId: p.id,
         details: { step, reason: 'ZERO_ORIGINAL_ALLOCATION', originalRaw: s.original_raw },
       });
-    if (dust.length)
+    if (dust.length) {
+      s.dust_steps = [...s.dust_steps, ...dust];
       await db.query('UPDATE position_exit_state SET dust_steps=$2 WHERE position_id=$1', [
         p.id,
-        JSON.stringify([...s.dust_steps, ...dust]),
+        JSON.stringify(s.dust_steps),
       ]);
-    if (dust.length)
-      await db.query('UPDATE positions SET take_profit_remaining=$2 WHERE id=$1', [
-        p.id,
-        JSON.stringify(
-          p.policy.takeProfit.filter((_, i) => !s.dust_steps.includes(i) && !dust.includes(i)),
-        ),
-      ]);
+      await persistRemainingTakeProfit(db, p, s);
+    }
     if (!reason) return;
     let units =
       reason === 'take_profit'
