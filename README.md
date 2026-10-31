@@ -135,3 +135,13 @@ keeps durable evidence and policy history, and emits a fail-closed JSON report.
 All six checks are mandatory. Positive live LP, developer attribution, sell
 simulation and bundle coverage remain unsupported and explicitly deny. See
 [token safety setup, engineering policies and coverage limits](docs/token-safety.md).
+
+### Local bot controls (BOT-15)
+
+The existing dashboard now lists, creates and edits paper bot configurations with
+an offline-prepared dedicated wallet, strategy/profile guidance, optimistic revision
+checks and off/paper controls. Strategies remain unavailable; live requests always
+fail closed. See [offline preparation, local startup and security](docs/bot-control.md).
+Open `http://127.0.0.1:5173/`; Vite proxies `/api/*` to `127.0.0.1:3001`.
+Set matching `API_PORT` in both processes when changing ports, and set the API's
+`API_DASHBOARD_ORIGIN` to the exact dashboard origin (default `http://127.0.0.1:5173`).

@@ -121,11 +121,14 @@ interface OrderRow {
   decimals: number;
 }
 async function lockedOrder(db: Queryable, id: string): Promise<OrderRow> {
+  const found = await db.query<{ bot_id: string }>('SELECT bot_id FROM orders WHERE id=$1', [id]);
+  if (!found.rows[0]) throw new Error('ORDER_NOT_FOUND');
+  await db.query('SELECT id FROM bots WHERE id=$1 FOR UPDATE', [found.rows[0].bot_id]);
   const { rows } = await db.query<OrderRow>(
-    `SELECT o.*, b.mode bot_mode, b.paper_bankroll_lamports, t.decimals FROM orders o JOIN bots b ON b.id=o.bot_id JOIN tokens t ON t.mint=o.token_mint WHERE o.id=$1 FOR UPDATE OF o,b`,
+    `SELECT o.*, b.mode bot_mode, b.paper_bankroll_lamports, t.decimals FROM orders o JOIN bots b ON b.id=o.bot_id JOIN tokens t ON t.mint=o.token_mint WHERE o.id=$1 FOR UPDATE OF o`,
     [id],
   );
-  if (!rows[0]) throw new Error('ORDER_NOT_FOUND');
+  if (!rows[0] || rows[0].bot_id !== found.rows[0].bot_id) throw new Error('ORDER_NOT_FOUND');
   return rows[0];
 }
 function matches(order: OrderRow, intent: ApprovedOrderIntent): void {
