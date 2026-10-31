@@ -9,31 +9,40 @@ Configuration never opens database/provider connections. The values below are
 validated policy settings; future adapters must implement the rate and credit limits.
 All defaults preserve ADR-1's free-only, local, paper-first scope.
 
-| Setting                           | Rule/default                                                                       |
-| --------------------------------- | ---------------------------------------------------------------------------------- |
-| `DATABASE_URL`                    | Required PostgreSQL URL, database name and loopback host; no query/fragment        |
-| `BOT_MODE`                        | `paper`; live, off and unknown values are rejected by this initial runtime         |
-| `BOT_MARKET_DATA`                 | `fixtures`; `mainnet` requires a Helius key and still means paper trading          |
-| `API_HOST`                        | `127.0.0.1` only                                                                   |
-| `API_PORT`                        | `3001`; integer 1024–65535                                                         |
-| `HELIUS_API_KEY`                  | Required for mainnet data, optional for fixtures; endpoint fixed to Helius mainnet |
-| `JUPITER_API_KEY`                 | Optional; no key means keyless access                                              |
-| `BOT_MONTHLY_SERVICE_BUDGET_USD`  | `0` only                                                                           |
-| `BOT_HELIUS_MONTHLY_CREDIT_STOP`  | `800000`, may only be lowered                                                      |
-| `BOT_JUPITER_REQUESTS_PER_MINUTE` | `20`, may only be lowered                                                          |
-| `BOT_WATCHLIST_SIZE`              | `10`, may only be lowered                                                          |
-| `BOT_SNAPSHOT_INTERVAL_MS`        | `30000`; 30000–3600000                                                             |
-| `BOT_MAX_DATA_AGE_MS`             | Larger of 60000 or the snapshot interval; cannot be shorter than the interval      |
+| Setting                           | Rule/default                                                                                  |
+| --------------------------------- | --------------------------------------------------------------------------------------------- |
+| `DATABASE_URL`                    | Required PostgreSQL URL, database name and loopback host; no query/fragment                   |
+| `BOT_MODE`                        | `paper`; live, off and unknown values are rejected by this initial runtime                    |
+| `MARKET_DATA_ENABLED`             | `false`; exact `true` opts into read-only pool/launch discovery independently of polling mode |
+| `SOLANA_RPC_URL`                  | HTTP(S) discovery endpoint; free public mainnet by default; stored as a secret                |
+| `SOLANA_WS_URL`                   | WS(S) discovery endpoint; free public mainnet by default; stored as a secret                  |
+| `BOT_MARKET_DATA`                 | `fixtures`; `mainnet` requires a Helius key and still means paper trading                     |
+| `API_HOST`                        | `127.0.0.1` only                                                                              |
+| `API_PORT`                        | `3001`; integer 1024–65535                                                                    |
+| `HELIUS_API_KEY`                  | Required for mainnet data, optional for fixtures; endpoint fixed to Helius mainnet            |
+| `JUPITER_API_KEY`                 | Optional; no key means keyless access                                                         |
+| `BOT_MONTHLY_SERVICE_BUDGET_USD`  | `0` only                                                                                      |
+| `BOT_HELIUS_MONTHLY_CREDIT_STOP`  | `800000`, may only be lowered                                                                 |
+| `BOT_JUPITER_REQUESTS_PER_MINUTE` | `20`, may only be lowered                                                                     |
+| `BOT_WATCHLIST_SIZE`              | `10`, may only be lowered                                                                     |
+| `BOT_SNAPSHOT_INTERVAL_MS`        | `30000`; 30000–3600000                                                                        |
+| `BOT_MAX_DATA_AGE_MS`             | Larger of 60000 or the snapshot interval; cannot be shorter than the interval                 |
 
 Unknown `BOT_*` settings fail rather than silently accepting typos. Signing-related
 environment values are rejected. API/engine settings are read once at startup.
-Existing `API_PORT` and `API_HOST` names are retained. The old scaffold's
-`SOLANA_RPC_URL`, `SOLANA_WS_URL`, and empty Telegram placeholders are removed from
-the example: no arbitrary endpoint or Telegram configuration is used at this stage.
+Existing `API_PORT` and `API_HOST` names are retained. Discovery uses validated
+`SOLANA_RPC_URL`/`SOLANA_WS_URL` independently of the Helius polling setting: keep
+`BOT_MARKET_DATA=fixtures` to use free public discovery without a provider key.
+Discovery endpoints reject whitespace, control characters, fragments and incorrect
+schemes. Complete URLs, decoded credentials and query token values are registered
+for redaction; wrappers reveal only at the read-only fetch/WebSocket boundary.
+The factory-level engine `off` isolation remains tested, but the shared startup
+loader currently accepts only `paper` mode. Empty Telegram placeholders remain removed.
 
 ## Supplying secrets
 
-Inject real `DATABASE_URL`, `HELIUS_API_KEY`, and optional `JUPITER_API_KEY` through
+Inject real `DATABASE_URL`, `HELIUS_API_KEY`, optional `JUPITER_API_KEY`, and any
+credential-bearing `SOLANA_RPC_URL`/`SOLANA_WS_URL` through
 an OS/secret-manager facility or protected environment. Do not put real credentials
 in committed files or plaintext `.env` files. `.env.example` contains only demo
 database credentials matching the local Docker service.
@@ -45,9 +54,10 @@ For an encrypted source, supply both:
   cryptographically random 32-byte key from a protected source.
 
 The authenticated plaintext is a JSON object containing only `DATABASE_URL`,
-`HELIUS_API_KEY`, and/or `JUPITER_API_KEY`. These supplement the environment; duplicate
+`HELIUS_API_KEY`, `JUPITER_API_KEY`, `SOLANA_RPC_URL`, and/or `SOLANA_WS_URL`. These supplement the environment; duplicate
 definitions are rejected. Policy settings such as mode cannot be overridden by the
-encrypted payload. Remove the example's `DATABASE_URL` when supplying it encrypted.
+encrypted payload. Remove an example setting such as `DATABASE_URL` or `SOLANA_RPC_URL` when supplying
+that same field encrypted.
 Missing key/envelope pairs, tampering, malformed payloads and wrong keys fail startup
 without printing the envelope, plaintext or key.
 

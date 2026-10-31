@@ -29,6 +29,24 @@ describe('engine startup configuration boundary', () => {
   });
   it.each([
     [{}, 'DATABASE_URL'],
+    [
+      { DATABASE_URL: 'postgresql://127.0.0.1/bot_paper', MARKET_DATA_ENABLED: 'invalid' },
+      'MARKET_DATA_ENABLED',
+    ],
+    [
+      {
+        DATABASE_URL: 'postgresql://127.0.0.1/bot_paper',
+        SOLANA_RPC_URL: 'file:///synthetic-rpc-secret',
+      },
+      'SOLANA_RPC_URL',
+    ],
+    [
+      {
+        DATABASE_URL: 'postgresql://127.0.0.1/bot_paper',
+        SOLANA_WS_URL: 'https://synthetic-ws-secret.example',
+      },
+      'SOLANA_WS_URL',
+    ],
     [{ DATABASE_URL: 'synthetic-invalid-db-secret' }, 'DATABASE_URL'],
     [{ DATABASE_URL: 'postgresql://127.0.0.1/bot_paper', BOT_MODE: 'live' }, 'BOT_MODE'],
     [
@@ -43,6 +61,8 @@ describe('engine startup configuration boundary', () => {
       expect(result.stdout).toContain(field);
       expect(result.stdout + result.stderr).not.toContain('synthetic-invalid-db-secret');
       expect(result.stdout + result.stderr).not.toContain('synthetic-wallet-key');
+      expect(result.stdout + result.stderr).not.toContain('synthetic-rpc-secret');
+      expect(result.stdout + result.stderr).not.toContain('synthetic-ws-secret');
       expect(result.stdout).not.toContain('engine_status');
     },
   );

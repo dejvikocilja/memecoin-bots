@@ -1,10 +1,13 @@
 import type { BotMode } from '@memebots/core';
 
+import type { DiscoveryListener } from './market-data/listener.js';
+
 export type LogFn = (message: string) => void;
 
 export interface EngineOptions {
   readonly mode: BotMode;
   readonly log: LogFn;
+  readonly discovery?: DiscoveryListener;
 }
 
 export interface Engine {
@@ -21,7 +24,7 @@ export interface Engine {
  * Live mode is refused until the live executor and kill switch exist: there is
  * no code path in this scaffold that can move real funds.
  */
-export function createEngine({ mode, log }: EngineOptions): Engine {
+export function createEngine({ mode, log, discovery }: EngineOptions): Engine {
   if (mode === 'live') {
     throw new Error(
       'Live mode is not available yet: the live executor and kill switch are not built.',
@@ -38,11 +41,13 @@ export function createEngine({ mode, log }: EngineOptions): Engine {
     start() {
       if (running) return;
       running = true;
+      if (mode !== 'off') discovery?.start();
       log(`engine started in ${mode} mode`);
     },
     stop() {
       if (!running) return;
       running = false;
+      discovery?.stop();
       log('engine stopped');
     },
   };

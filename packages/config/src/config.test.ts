@@ -281,3 +281,88 @@ test('startup diagnostics never echo invalid secrets before registration', () =>
   assert.ok(!lines[0]!.includes('synthetic-bad-secret-927'));
   assert.throws(() => loadConfig({ ...base, API_HOST: '0.0.0.0' }), /API_HOST/);
 });
+
+test('discovery is independently opt-in on free public endpoints with wrapped immutable settings', () => {
+  const defaults = loadConfig(base);
+  assert.equal(defaults.discovery.enabled, false);
+  assert.equal(defaults.discovery.rpcUrl.reveal(), 'https://api.mainnet-beta.solana.com/');
+  assert.equal(defaults.discovery.wsUrl.reveal(), 'wss://api.mainnet-beta.solana.com/');
+  assert.ok(Object.isFrozen(defaults.discovery));
+  const enabled = loadConfig({ ...base, MARKET_DATA_ENABLED: 'true' });
+  assert.equal(enabled.discovery.enabled, true);
+  assert.equal(enabled.marketData, 'fixtures');
+  assert.equal(enabled.providers.heliusRpcUrl, undefined);
+});
+
+test('discovery config rejects invalid endpoints and boolean values without reflecting secrets', () => {
+  for (const MARKET_DATA_ENABLED of ['1', '', 'TRUE', ' true ']) {
+    assert.throws(() => loadConfig({ ...base, MARKET_DATA_ENABLED }), /MARKET_DATA_ENABLED/);
+  }
+  for (const [field, value] of [
+    ['SOLANA_RPC_URL', 'file:///synthetic-token'],
+    ['SOLANA_RPC_URL', ' https://synthetic-token.example'],
+    ['SOLANA_RPC_URL', 'https://synthetic-token.example/#fragment'],
+    ['SOLANA_RPC_URL', 'https://user:%zz@example.test'],
+    ['SOLANA_WS_URL', 'https://synthetic-token.example'],
+    ['SOLANA_WS_URL', 'wss://synthetic-token.example/\n'],
+  ]) {
+    assert.throws(
+      () => loadConfig({ ...base, [field!]: value }),
+      (error: unknown) => {
+        assert.ok(error instanceof ConfigurationError);
+        assert.ok(error.fields.includes(field!));
+        assert.ok(!error.message.includes('synthetic-token'));
+        return true;
+      },
+    );
+  }
+});
+
+test('discovery URL credentials and arbitrary query tokens are registered before runtime logging', () => {
+  const registry = new SecretRegistry();
+  const config = loadConfig(
+    {
+      ...base,
+      SOLANA_RPC_URL:
+        'https://synthetic-user:synthetic-password@example.test/rpc?custom=synthetic-query-token',
+      SOLANA_WS_URL: 'wss://example.test/socket?custom=synthetic-ws-token',
+    },
+    registry,
+  );
+  const lines: string[] = [];
+  createLogger(registry, (line) => lines.push(line)).error('provider_failed', {
+    config,
+    message: 'synthetic-user synthetic-password synthetic-query-token synthetic-ws-token',
+  });
+  const output = lines.join('\n') + JSON.stringify(config) + inspect(config);
+  for (const value of [
+    'synthetic-user',
+    'synthetic-password',
+    'synthetic-query-token',
+    'synthetic-ws-token',
+  ])
+    assert.ok(!output.includes(value));
+});
+
+test('encrypted discovery endpoints supplement environment and reject duplicate definitions', () => {
+  const key = randomBytes(32);
+  const encrypted = {
+    BOT_ENCRYPTED_CONFIG: encryptSecret(
+      JSON.stringify({
+        SOLANA_RPC_URL: 'https://example.test/?key=synthetic-encrypted-rpc',
+        SOLANA_WS_URL: 'wss://example.test/?key=synthetic-encrypted-ws',
+      }),
+      key,
+    ),
+    BOT_CONFIG_ENCRYPTION_KEY: key.toString('base64'),
+  };
+  const config = loadConfig({ ...base, ...encrypted });
+  assert.equal(
+    config.discovery.rpcUrl.reveal(),
+    'https://example.test/?key=synthetic-encrypted-rpc',
+  );
+  assert.throws(
+    () => loadConfig({ ...base, ...encrypted, SOLANA_RPC_URL: 'https://example.test' }),
+    /SOLANA_RPC_URL/,
+  );
+});

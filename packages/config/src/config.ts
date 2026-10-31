@@ -7,6 +7,7 @@ export interface AppConfig {
   readonly mode: 'paper';
   readonly marketData: 'fixtures' | 'mainnet';
   readonly databaseUrl: Secret;
+  readonly discovery: Readonly<{ enabled: boolean; rpcUrl: Secret; wsUrl: Secret }>;
   readonly api: Readonly<{ host: '127.0.0.1'; port: number }>;
   readonly providers: Readonly<{
     heliusRpcUrl?: Secret;
@@ -27,6 +28,9 @@ export interface AppConfig {
 const CONFIG_KEYS = new Set([
   'BOT_MODE',
   'BOT_MARKET_DATA',
+  'MARKET_DATA_ENABLED',
+  'SOLANA_RPC_URL',
+  'SOLANA_WS_URL',
   'DATABASE_URL',
   'API_PORT',
   'API_HOST',
@@ -128,7 +132,13 @@ function resolveEncryptedSecrets(
     const values: unknown = JSON.parse(plaintext);
     if (values === null || typeof values !== 'object' || Array.isArray(values))
       fail('BOT_ENCRYPTED_CONFIG');
-    const allowed = new Set(['DATABASE_URL', 'HELIUS_API_KEY', 'JUPITER_API_KEY']);
+    const allowed = new Set([
+      'DATABASE_URL',
+      'HELIUS_API_KEY',
+      'JUPITER_API_KEY',
+      'SOLANA_RPC_URL',
+      'SOLANA_WS_URL',
+    ]);
     for (const [name, value] of Object.entries(values)) {
       if (!allowed.has(name) || typeof value !== 'string' || value.length > MAX_ENV_VALUE)
         fail('BOT_ENCRYPTED_CONFIG');
@@ -203,6 +213,33 @@ function database(value: string | undefined, registry: SecretRegistry): Secret {
   return registry.register(value);
 }
 
+/** Keep endpoint credentials wrapped until the read-only provider boundary. */
+function endpoint(
+  value: string,
+  field: string,
+  protocols: readonly string[],
+  registry: SecretRegistry,
+): Secret {
+  if (value.trim() !== value || hasControls(value)) fail(field);
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    return fail(field);
+  }
+  if (!protocols.includes(url.protocol) || !url.hostname || url.hash) fail(field);
+  try {
+    if (url.username) registry.register(decodeURIComponent(url.username));
+    if (url.password) registry.register(decodeURIComponent(url.password));
+    // Query values can contain provider tokens even with nonstandard parameter names.
+    for (const token of url.searchParams.values()) if (token) registry.register(token);
+    registry.register(value);
+    return registry.register(url.href);
+  } catch {
+    return fail(field);
+  }
+}
+
 /** Validates a supplied environment/secret-manager mapping. Never reads files or makes requests. */
 export function loadConfig(input: Environment, registry = new SecretRegistry()): AppConfig {
   const env = snapshot(input);
@@ -217,6 +254,23 @@ export function loadConfig(input: Environment, registry = new SecretRegistry()):
   const jupiterKey = credential(env, 'JUPITER_API_KEY');
   if (marketData === 'mainnet' && !heliusKey) fail('HELIUS_API_KEY');
 
+  const enabled = env.MARKET_DATA_ENABLED ?? 'false';
+  if (enabled !== 'true' && enabled !== 'false') fail('MARKET_DATA_ENABLED');
+  const discovery = Object.freeze({
+    enabled: enabled === 'true',
+    rpcUrl: endpoint(
+      env.SOLANA_RPC_URL ?? 'https://api.mainnet-beta.solana.com',
+      'SOLANA_RPC_URL',
+      ['http:', 'https:'],
+      registry,
+    ),
+    wsUrl: endpoint(
+      env.SOLANA_WS_URL ?? 'wss://api.mainnet-beta.solana.com',
+      'SOLANA_WS_URL',
+      ['ws:', 'wss:'],
+      registry,
+    ),
+  });
   const db = database(env.DATABASE_URL, registry);
   const providers: {
     heliusRpcUrl?: Secret;
@@ -243,6 +297,7 @@ export function loadConfig(input: Environment, registry = new SecretRegistry()):
     mode,
     marketData,
     databaseUrl: db,
+    discovery,
     api: Object.freeze({
       host: '127.0.0.1' as const,
       port: integer(env, 'API_PORT', 3001, 1024, 65535),

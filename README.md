@@ -20,7 +20,9 @@ holds the code.
 ## Status
 
 The scaffold (BOT-3) now uses shared typed configuration and redacted logging (BOT-4).
-Both services validate their settings before starting. Nothing can trade real funds:
+Both services validate their settings before starting. An opt-in read-only discovery
+listener streams new pools and pump.fun launches (BOT-6); see
+[discovery setup, coverage and limits](docs/architecture/DISCOVERY.md). Nothing can trade real funds:
 the runtime accepts `paper` mode only and rejects wallet signing material.
 
 ## Layout
@@ -62,17 +64,20 @@ pnpm db:migrate                 # reads DATABASE_URL from .env, like the API and
 Start each part in its own terminal:
 
 ```bash
-pnpm dev:engine      # engine in paper mode
+pnpm dev:engine      # engine in paper mode, discovery disabled by default
 pnpm dev:api         # API on http://127.0.0.1:3001/health
 pnpm dev:dashboard   # dashboard on http://127.0.0.1:5173
 ```
 
+For free public read-only discovery, run `MARKET_DATA_ENABLED=true pnpm dev:engine`.
+This is independent of `BOT_MARKET_DATA`, which may remain `fixtures`.
+
 Database commands: `pnpm db:migrate`, `pnpm db:status`, `pnpm db:rollback [steps]`
-(see `packages/db/README.md`).
+(see `packages/db/README.md`). Discovery does not open a database connection.
 
 ## Checks
 
-`pnpm check` runs everything CI runs:
+`pnpm check` runs the repository validation suite:
 
 | Command              | What it does                                                                                                                          |
 | -------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
@@ -82,7 +87,9 @@ Database commands: `pnpm db:migrate`, `pnpm db:status`, `pnpm db:rollback [steps
 | `pnpm test`          | Vitest, every package. Database tests need `TEST_DATABASE_URL` (see `.env.example`); without it they are skipped locally, never in CI |
 | `pnpm build`         | Builds every package                                                                                                                  |
 
-CI (`.github/workflows/ci.yml`) runs the same checks on every pull request.
+CI (`.github/workflows/ci.yml`) runs these checks on every pull request and also
+exercises `db:migrate`, `db:status`, `db:rollback`, then `db:migrate` against a
+disposable database.
 
 ## Secrets
 
