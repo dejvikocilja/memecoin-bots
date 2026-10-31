@@ -12,6 +12,8 @@ const EXPECTED_TABLES = [
   'risk_profiles',
   'schema_migrations',
   'tokens',
+  'wallet_reservations',
+  'wallet_spend_state',
   'wallets',
 ];
 
