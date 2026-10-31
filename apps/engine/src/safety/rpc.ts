@@ -124,6 +124,19 @@ export class SafetyRpc {
         Buffer.concat(chunks).toString('utf8'),
         (_key: string, value: unknown, context?: { source?: string }) => {
           if (_key === 'uiAmount') return null; // Optional display float is never used or persisted.
+          if (_key === 'rentEpoch' || _key === 'lamports') {
+            // Known unused account u64 metadata must be checked from the lexical token.
+            // Rent-exempt accounts commonly use u64::MAX, which is not a safe Number.
+            // Discard it rather than exposing a rounded amount to downstream consumers.
+            if (
+              typeof value !== 'number' ||
+              context?.source === undefined ||
+              !/^(0|[1-9][0-9]*)$/.test(context.source) ||
+              BigInt(context.source) > 18446744073709551615n
+            )
+              throw new SafetyRpcError('INVALID_RESPONSE');
+            return undefined;
+          }
           if (
             typeof value === 'number' &&
             (!Number.isFinite(value) ||

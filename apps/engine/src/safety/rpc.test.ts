@@ -1,22 +1,45 @@
 import { describe, expect, it, vi } from 'vitest';
 import { Secret } from '@memebots/config';
 import { SafetyRpc } from './rpc.js';
-import { FIXTURE_MINT, rpcFixture } from './rpc-fixtures.js';
+import { FIXTURE_MINT, rpcFixture, serializeRpcResponse } from './rpc-fixtures.js';
 import { DEFAULT_POLICY, evaluate } from './evidence.js';
 const endpoint = new Secret('http://127.0.0.1:12345/private?credential=DO_NOT_PERSIST');
 function mock(modify: (method: string, value: unknown) => unknown = (_m, v) => v): typeof fetch {
   return vi.fn(async (_url, init) => {
     const request = JSON.parse(init!.body as string) as { method: string; id: number };
     return new Response(
-      JSON.stringify({
-        jsonrpc: '2.0',
-        id: request.id,
-        result: modify(request.method, rpcFixture(request.method)),
-      }),
+      serializeRpcResponse(request.id, modify(request.method, rpcFixture(request.method))),
     );
   });
 }
 describe('bounded read-only classic SPL RPC', () => {
+  it('collects official-shaped rent-exempt mint and token accounts without rounding unused u64 metadata', async () => {
+    const serialized = serializeRpcResponse(1, rpcFixture('getAccountInfo'));
+    expect(serialized).toContain('"rentEpoch":18446744073709551615');
+    expect(serialized).toContain('"lamports":1461600');
+    expect(serialized).toContain('"apiVersion":"2.0.15"');
+    const accounts = serializeRpcResponse(4, rpcFixture('getMultipleAccounts'));
+    expect(accounts.match(/"rentEpoch":18446744073709551615/g)).toHaveLength(2);
+    const evidence = await new SafetyRpc(endpoint, { fetch: mock() }).collect(FIXTURE_MINT);
+    expect(evidence.checks.mintAuthority.facts).toEqual({ authority: null });
+    expect(evidence.checks.holders.facts!.owners).toEqual([
+      expect.objectContaining({ amountRaw: '1200000000000000000' }),
+    ]);
+    expect(JSON.stringify(evidence)).not.toMatch(/rentEpoch|lamports|18446744073709551615/);
+  });
+  it.each(['18446744073709551616', '9007199254740990.75', '1e2', '-1'])(
+    'rejects malformed unused account u64 metadata %s without relaxing consumed numeric validation',
+    async (rawMetadata) => {
+      const response = serializeRpcResponse(1, rpcFixture('getAccountInfo')).replace(
+        '"rentEpoch":18446744073709551615',
+        `"rentEpoch":${rawMetadata}`,
+      );
+      const evidence = await new SafetyRpc(endpoint, {
+        fetch: vi.fn(async () => new Response(response)),
+      }).collect(FIXTURE_MINT);
+      expect(evidence.checks.mintAuthority.reason).toBe('RPC_UNAVAILABLE');
+    },
+  );
   it('decodes mint and aggregates actual token-account owners; unsupported checks deny', async () => {
     const fetcher = mock();
     const e = await new SafetyRpc(endpoint, { fetch: fetcher }).collect(FIXTURE_MINT);

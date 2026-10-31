@@ -41,9 +41,12 @@ decimals and amounts. Nonexistent accounts, unknown programs, Token-2022 layouts
 and unknown extensions remain unknown. Syntax-valid addresses alone never prove
 mint existence. Supply and token-account raw balances use little-endian u64 and
 bigint/decimal strings; no floating point amount arithmetic is used. Node 24 raw
-JSON token validation rejects fractional, exponent or unsafe numeric fields
-before their rounded Number values can be consumed. Optional display-only
-`uiAmount` is discarded, never evidence.
+JSON token validation rejects fractional, exponent or unsafe consumed numeric
+fields before their rounded Number values can be used. Known unused account
+`rentEpoch` and `lamports` metadata are validated as unsigned u64 directly from
+the exact lexical token and discarded; this handles the normal rent-exempt
+`rentEpoch=18446744073709551615` without rounding it into evidence. Optional
+display-only `uiAmount` is discarded, never evidence.
 
 Largest-accounts RPC returns at most twenty **token accounts**. The collector
 resolves those accounts, validates mint/program/state/balance and aggregates by

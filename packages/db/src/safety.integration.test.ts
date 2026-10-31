@@ -10,7 +10,7 @@ import { SafetyRpc } from '../../../apps/engine/src/safety/rpc.js';
 import { runSafetyCli } from '../../../apps/engine/src/safety/cli.js';
 import { DEFAULT_POLICY } from '../../../apps/engine/src/safety/evidence.js';
 import { goodScenario, FIXTURE_MINT } from '../../../apps/engine/src/safety/fixtures.js';
-import { rpcFixture } from '../../../apps/engine/src/safety/rpc-fixtures.js';
+import { rpcFixture, serializeRpcResponse } from '../../../apps/engine/src/safety/rpc-fixtures.js';
 
 describe.skipIf(!hasTestDatabase)('durable token safety pipeline', () => {
   const pool = hasTestDatabase ? createTestPool() : undefined!;
@@ -207,7 +207,7 @@ describe.skipIf(!hasTestDatabase)('durable token safety pipeline', () => {
       const q = JSON.parse(body) as { method: string; id: number };
       methods.push(q.method);
       res.setHeader('content-type', 'application/json');
-      res.end(JSON.stringify({ jsonrpc: '2.0', id: q.id, result: rpcFixture(q.method) }));
+      res.end(serializeRpcResponse(q.id, rpcFixture(q.method)));
     });
     await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
     const endpoint = `http://127.0.0.1:${(server.address() as AddressInfo).port}/?credential=DO_NOT_REPORT`;

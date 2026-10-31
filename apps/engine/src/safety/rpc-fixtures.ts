@@ -5,9 +5,13 @@ const account = (data: Buffer) => ({
   owner: TOKEN_PROGRAM,
   executable: false,
   data: [data.toString('base64'), 'base64'],
+  lamports: 1461600,
+  space: data.length,
+  // String sentinel serialized as an exact JSON numeric token by serializeRpcResponse.
+  rentEpoch: '18446744073709551615',
 });
 export function rpcFixture(method: string): unknown {
-  const context = { slot: 100 };
+  const context = { apiVersion: '2.0.15', slot: 100 };
   if (method === 'getAccountInfo') {
     const b = Buffer.alloc(82);
     b.writeBigUInt64LE(BigInt(SUPPLY), 36);
@@ -46,3 +50,11 @@ export function rpcFixture(method: string): unknown {
   throw new Error('UNEXPECTED_METHOD');
 }
 export { FIXTURE_MINT };
+
+/** Official-shaped account metadata, including rent-exempt u64::MAX numeric token. */
+export function serializeRpcResponse(id: number, result: unknown): string {
+  return JSON.stringify({ jsonrpc: '2.0', id, result }).replaceAll(
+    '"rentEpoch":"18446744073709551615"',
+    '"rentEpoch":18446744073709551615',
+  );
+}
