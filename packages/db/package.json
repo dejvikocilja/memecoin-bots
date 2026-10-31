@@ -1,0 +1,30 @@
+{
+  "name": "@memebots/db",
+  "version": "0.0.0",
+  "private": true,
+  "description": "PostgreSQL schema, migrations and data access for bots, risk profiles, positions, orders, fills and the audit log.",
+  "type": "module",
+  "exports": {
+    ".": {
+      "@memebots/source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "migrations"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "migrate": "tsx --conditions=@memebots/source src/cli.ts"
+  },
+  "dependencies": {
+    "@memebots/core": "workspace:*",
+    "pg": "^8.23.1"
+  },
+  "devDependencies": {
+    "@types/pg": "^8.23.1"
+  }
+}

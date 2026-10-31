@@ -11,3 +11,9 @@ export const MAX_POSITION_FRACTION = 0.05;
 export function isRiskProfileName(value: unknown): value is RiskProfileName {
   return typeof value === 'string' && (RISK_PROFILE_NAMES as readonly string[]).includes(value);
 }
+
+/** One step of a take-profit ladder: once price is up `atGain` (0.3 = +30%), sell `sellFraction` of the original size. */
+export interface TakeProfitStep {
+  readonly atGain: number;
+  readonly sellFraction: number;
+}

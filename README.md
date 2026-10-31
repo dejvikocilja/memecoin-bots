@@ -27,6 +27,7 @@ Scaffold only (task BOT-3). Nothing here can trade real funds yet: the engine re
 | Path             | What it is                                                                                    |
 | ---------------- | --------------------------------------------------------------------------------------------- |
 | `packages/core`  | Shared types and constants: bot modes, risk profile names, strategy signals, the risk warning |
+| `packages/db`    | PostgreSQL schema, migrations and data access (see its README)                                |
 | `apps/engine`    | The bot engine (market data → strategies → risk manager → executor)                           |
 | `apps/api`       | HTTP API for the dashboard (Fastify)                                                          |
 | `apps/dashboard` | Web dashboard (React + Vite)                                                                  |
@@ -43,6 +44,13 @@ pnpm install
 cp .env.example .env
 ```
 
+Start PostgreSQL (or use a local install) and create the tables:
+
+```bash
+docker compose up -d postgres   # creates the memebots and memebots_test databases
+pnpm db:migrate                 # reads DATABASE_URL from your shell
+```
+
 Start each part in its own terminal:
 
 ```bash
@@ -51,23 +59,20 @@ pnpm dev:api         # API on http://127.0.0.1:3001/health
 pnpm dev:dashboard   # dashboard on http://127.0.0.1:5173
 ```
 
-PostgreSQL is optional until the data model lands (BOT-5). To run one locally:
-
-```bash
-docker compose up -d postgres
-```
+Database commands: `pnpm db:migrate`, `pnpm db:status`, `pnpm db:rollback [steps]`
+(see `packages/db/README.md`).
 
 ## Checks
 
 `pnpm check` runs everything CI runs:
 
-| Command              | What it does                                                                   |
-| -------------------- | ------------------------------------------------------------------------------ |
-| `pnpm check:secrets` | Fails if a `.env` file, a Solana keypair or a private key is in the repository |
-| `pnpm lint`          | ESLint and Prettier                                                            |
-| `pnpm typecheck`     | TypeScript in strict mode, every package                                       |
-| `pnpm test`          | Vitest, every package                                                          |
-| `pnpm build`         | Builds every package                                                           |
+| Command              | What it does                                                                                                                          |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| `pnpm check:secrets` | Fails if a `.env` file, a Solana keypair or a private key is in the repository                                                        |
+| `pnpm lint`          | ESLint and Prettier                                                                                                                   |
+| `pnpm typecheck`     | TypeScript in strict mode, every package                                                                                              |
+| `pnpm test`          | Vitest, every package. Database tests need `TEST_DATABASE_URL` (see `.env.example`); without it they are skipped locally, never in CI |
+| `pnpm build`         | Builds every package                                                                                                                  |
 
 CI (`.github/workflows/ci.yml`) runs the same checks on every pull request.
 
