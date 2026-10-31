@@ -1,0 +1,22 @@
+# Dependencies and builds
+node_modules/
+dist/
+coverage/
+*.tsbuildinfo
+
+# Secrets: never commit these (see README "Secrets")
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+id.json
+keypair*.json
+*-keypair.json
+wallets/
+secrets/
+
+# Local data
+pgdata/
+*.log
+.DS_Store
