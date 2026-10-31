@@ -29,8 +29,12 @@ jobs:
       TEST_DATABASE_URL: postgres://memebots:memebots@localhost:5432/memebots_test
       # Fail instead of skipping if the database tests cannot run.
       REQUIRE_DB_TESTS: '1'
+      MARKET_DATA_TEST_DATABASE_URL: postgres://memebots:memebots@localhost:5432/market_feed_test
+      REQUIRE_MARKET_DATA_DB_TESTS: '1'
     steps:
       - uses: actions/checkout@v4
+      - name: Create separate market data test database
+        run: docker exec ${{ job.services.postgres.id }} createdb -U memebots market_feed_test
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:
