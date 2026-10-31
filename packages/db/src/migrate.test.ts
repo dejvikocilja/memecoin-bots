@@ -11,6 +11,10 @@ const EXPECTED_TABLES = [
   'positions',
   'risk_profiles',
   'schema_migrations',
+  'token_safety_cache',
+  'token_safety_evaluations',
+  'token_safety_leases',
+  'token_safety_snapshots',
   'tokens',
   'wallets',
 ];
