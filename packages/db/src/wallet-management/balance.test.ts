@@ -31,6 +31,24 @@ describe('read-only wallet balance', () => {
       ).rejects.toThrow('BALANCE_UNAVAILABLE');
     },
   );
+  it.each(['9007199254740990.75', '9007199254740992', '1.00000000000000001', '1.0', '1e3', '-0'])(
+    'rejects noncanonical or unsafe raw numeric token %s before trusting a rounded Number',
+    async (token) => {
+      const raw = `{"jsonrpc":"2.0","id":1,"result":{"context":{"slot":42},"value":${token}}}`;
+      await expect(
+        readWalletBalance(endpoint, address, { fetch: async () => new Response(raw) }),
+      ).rejects.toThrow('BALANCE_UNAVAILABLE');
+    },
+  );
+  it('also validates raw slot and response ID tokens losslessly', async () => {
+    for (const raw of [
+      '{"jsonrpc":"2.0","id":1.00000000000000001,"result":{"context":{"slot":42},"value":1}}',
+      '{"jsonrpc":"2.0","id":1,"result":{"context":{"slot":9007199254740990.75},"value":1}}',
+    ])
+      await expect(
+        readWalletBalance(endpoint, address, { fetch: async () => new Response(raw) }),
+      ).rejects.toThrow('BALANCE_UNAVAILABLE');
+  });
   it.each([
     { ...valid(1), id: 2 },
     { ...valid(1), error: { message: 'secret' } },

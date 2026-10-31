@@ -58,24 +58,35 @@ export async function readWalletBalance(
       reader.releaseLock();
     }
     if (signal.aborted) fail('BALANCE_UNAVAILABLE');
-    const body: unknown = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+    // Node 24 supplies the original primitive token in reviver context.source.
+    // Never trust the already-rounded Number passed as `value`: e.g. a large
+    // fractional token can round UP to an apparently safe integer.
+    const body: unknown = JSON.parse(
+      Buffer.concat(chunks).toString('utf8'),
+      (_key: string, value: unknown, context?: { source?: string }): unknown => {
+        if (typeof value !== 'number') return value;
+        const source = context?.source;
+        if (typeof source !== 'string' || !/^(0|[1-9][0-9]*)$/.test(source))
+          fail('BALANCE_UNAVAILABLE');
+        const exact = BigInt(source);
+        if (exact > BigInt(Number.MAX_SAFE_INTEGER)) fail('BALANCE_UNAVAILABLE');
+        return exact;
+      },
+    );
     if (
       !object(body) ||
       body.jsonrpc !== '2.0' ||
-      body.id !== 1 ||
+      body.id !== 1n ||
       'error' in body ||
       !object(body.result) ||
       !object(body.result.context) ||
-      !Number.isSafeInteger(body.result.context.slot) ||
-      (body.result.context.slot as number) < 0 ||
-      typeof body.result.value !== 'number' ||
-      !Number.isSafeInteger(body.result.value) ||
-      body.result.value < 0
+      typeof body.result.context.slot !== 'bigint' ||
+      typeof body.result.value !== 'bigint'
     )
       fail('BALANCE_UNAVAILABLE');
     return {
-      balanceLamports: BigInt(body.result.value),
-      slot: body.result.context.slot as number,
+      balanceLamports: body.result.value,
+      slot: Number(body.result.context.slot),
       observedAt,
     };
   } catch {

@@ -24,7 +24,7 @@ import { createOfflineVault } from './vault.js';
 import type { OfflineVault } from './vault.js';
 import { ephemeralImport } from './test-support.js';
 
-const profile = `INSERT INTO risk_profiles(id,display_name,position_fraction,stop_loss_fraction,min_reward_risk,max_open_positions,daily_loss_limit_fraction,max_slippage_bps,min_liquidity_usd,min_safety_score,max_hold_minutes,losing_streak_limit) VALUES('balanced','Balanced',.02,.2,2,5,.06,300,50000,60,720,4)`;
+const profile = `INSERT INTO risk_profiles(id,display_name,position_fraction,stop_loss_fraction,take_profit_ladder,trailing_stop_fraction,min_reward_risk,max_open_positions,daily_loss_limit_fraction,max_slippage_bps,min_liquidity_usd,min_safety_score,max_hold_minutes,losing_streak_limit) VALUES('balanced','Balanced',.02,.2,'[{"atGain":0.3,"sellFraction":0.4},{"atGain":0.6,"sellFraction":0.3}]',.15,2,5,.06,300,50000,60,720,4) ON CONFLICT (id) DO NOTHING`;
 describe.skipIf(!hasTestDatabase)('wallet persistence and atomic spending', () => {
   const pool = hasTestDatabase ? createTestPool() : undefined!;
   let dir: string;
@@ -402,7 +402,7 @@ describe.skipIf(!hasTestDatabase)('wallet persistence and atomic spending', () =
   });
   it('supports offline pre-migration repair and reversible empty accounting migration', async () => {
     await resetDatabase(pool);
-    const migrations = await loadMigrations();
+    const migrations = (await loadMigrations()).filter((m) => m.version <= '0008');
     await migrateUp(
       pool,
       migrations.filter((m) => m.version === '0001'),
@@ -413,21 +413,23 @@ describe.skipIf(!hasTestDatabase)('wallet persistence and atomic spending', () =
         "INSERT INTO bots(name,strategy,risk_profile_id) VALUES('legacy','momentum','balanced') RETURNING id",
       )
     ).rows[0]!.id;
-    await expect(migrateUp(pool)).rejects.toThrow('provision each walletless bot offline');
+    await expect(migrateUp(pool, migrations)).rejects.toThrow(
+      'provision each walletless bot offline',
+    );
     const [a, b] = await Promise.all([
       provisionBotWallet(pool, options({ bot: { id: bot } })),
       provisionBotWallet(pool, options({ bot: { id: bot } })),
     ]);
     expect(a).toEqual(b);
-    await migrateUp(pool);
+    await migrateUp(pool, migrations);
     expect((await getWalletView(pool, bot)).availableLamports).toBe('0');
-    await migrateDown(pool, 1);
+    await migrateDown(pool, 1, migrations);
     expect(
       (await pool.query('SELECT wallet_id FROM bots WHERE id=$1', [bot])).rows[0].wallet_id,
     ).toBe(a.walletId);
     expect(await vault.listIds()).toEqual([a.walletId]);
-    await migrateUp(pool);
-    expect((await migrationStatus(pool)).every((m) => m.appliedAt)).toBe(true);
+    await migrateUp(pool, migrations);
+    expect((await migrationStatus(pool, migrations)).every((m) => m.appliedAt)).toBe(true);
   });
   it('requires a matching import when legacy public metadata has no encrypted key', async () => {
     const imported = ephemeralImport();
