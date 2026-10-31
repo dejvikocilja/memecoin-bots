@@ -16,7 +16,9 @@
   exit manager, so no strategy can bypass a risk limit.
 - Nothing may move real funds unless the bot is in `live` mode, the kill switch is not
   engaged and the risk manager approved the order.
-- Logging goes through the engine's logger (no `console.log`), so secrets can be redacted.
+- API/engine logging goes through `@memebots/config`'s shared logger (no direct console
+  or third-party log sinks). Register additional credentials before use and reveal
+  secret wrappers only at the provider/database boundary.
 - Bot state (positions, orders, fills, configuration) lives in PostgreSQL, never only in
   memory and never in AI chat history.
 - Significant architecture changes get a decision record in ProjectBrain and a pointer in
