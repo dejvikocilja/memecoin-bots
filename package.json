@@ -23,7 +23,8 @@
     "dev:dashboard": "pnpm --filter @memebots/dashboard dev",
     "db:migrate": "pnpm --filter @memebots/db migrate up",
     "db:rollback": "pnpm --filter @memebots/db migrate down",
-    "db:status": "pnpm --filter @memebots/db migrate status"
+    "db:status": "pnpm --filter @memebots/db migrate status",
+    "wallet": "pnpm --filter @memebots/db wallet"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

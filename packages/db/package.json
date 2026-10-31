@@ -19,7 +19,8 @@
     "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "migrate": "tsx --env-file-if-exists=../../.env --conditions=@memebots/source src/cli.ts",
-    "profiles": "tsx --env-file-if-exists=../../.env --conditions=@memebots/source src/risk-profiles-cli.ts"
+    "profiles": "tsx --env-file-if-exists=../../.env --conditions=@memebots/source src/risk-profiles-cli.ts",
+    "wallet": "tsx --env-file-if-exists=../../.env --conditions=@memebots/source src/wallet-management/cli.ts"
   },
   "dependencies": {
     "@memebots/config": "workspace:*",
