@@ -34,12 +34,18 @@ describe.skipIf(!hasTestDatabase)('schema', () => {
       `INSERT INTO tokens (mint, symbol, decimals) VALUES ($1, 'AAA', 6), ($2, 'BBB', 5)`,
       [MINT_A, MINT_B],
     );
+    const wallet = await pool.query<{ id: string }>(
+      `INSERT INTO wallets(label,public_key) VALUES('fixture', $1),('other fixture',$2) RETURNING id`,
+      [MINT_A, MINT_B],
+    );
     const bot = await pool.query<{ id: string }>(
-      `INSERT INTO bots (name, strategy, risk_profile_id, paper_bankroll_lamports)
-       VALUES ('momentum-balanced', 'momentum', 'balanced', 10000000000) RETURNING id`,
+      `INSERT INTO bots (name, strategy, risk_profile_id, paper_bankroll_lamports,wallet_id)
+       VALUES ('momentum-balanced', 'momentum', 'balanced', 10000000000,$1) RETURNING id`,
+      [wallet.rows[0]!.id],
     );
     const other = await pool.query<{ id: string }>(
-      `INSERT INTO bots (name, strategy, risk_profile_id) VALUES ('dip-balanced', 'dip_buy', 'balanced') RETURNING id`,
+      `INSERT INTO bots (name, strategy, risk_profile_id,wallet_id) VALUES ('dip-balanced', 'dip_buy', 'balanced',$1) RETURNING id`,
+      [wallet.rows[1]!.id],
     );
     return { botId: bot.rows[0]!.id, otherBotId: other.rows[0]!.id };
   }
@@ -129,11 +135,11 @@ describe.skipIf(!hasTestDatabase)('schema', () => {
       ).rejects.toThrow(/position_fraction/);
     });
 
-    it('will not let a bot go live without a wallet', async () => {
+    it('will not let any bot lose its wallet', async () => {
       const { botId } = await seed();
       await expect(
-        pool.query(`UPDATE bots SET mode = 'live' WHERE id = $1`, [botId]),
-      ).rejects.toThrow(/live_bot_needs_wallet/);
+        pool.query(`UPDATE bots SET wallet_id = NULL WHERE id = $1`, [botId]),
+      ).rejects.toThrow(/not-null|null value/i);
       const w = await pool.query<{ id: string }>(
         `INSERT INTO wallets (label, public_key) VALUES ('hot-1', $1) RETURNING id`,
         [WALLET],
