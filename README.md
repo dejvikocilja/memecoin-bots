@@ -19,19 +19,21 @@ holds the code.
 
 ## Status
 
-Scaffold only (task BOT-3). Nothing here can trade real funds yet: the engine refuses
-`live` mode until the live executor and kill switch are built.
+The scaffold (BOT-3) now uses shared typed configuration and redacted logging (BOT-4).
+Both services validate their settings before starting. Nothing can trade real funds:
+the runtime accepts `paper` mode only and rejects wallet signing material.
 
 ## Layout
 
-| Path             | What it is                                                                                    |
-| ---------------- | --------------------------------------------------------------------------------------------- |
-| `packages/core`  | Shared types and constants: bot modes, risk profile names, strategy signals, the risk warning |
-| `apps/engine`    | The bot engine (market data → strategies → risk manager → executor)                           |
-| `apps/api`       | HTTP API for the dashboard (Fastify)                                                          |
-| `apps/dashboard` | Web dashboard (React + Vite)                                                                  |
-| `scripts/`       | Repository checks, such as the secret scanner                                                 |
-| `docs/`          | Architecture and decision records                                                             |
+| Path              | What it is                                                                                    |
+| ----------------- | --------------------------------------------------------------------------------------------- |
+| `packages/core`   | Shared types and constants: bot modes, risk profile names, strategy signals, the risk warning |
+| `packages/config` | Shared startup validation, secret wrappers, redacted logging and encrypted secret envelopes   |
+| `apps/engine`     | The bot engine (market data → strategies → risk manager → executor)                           |
+| `apps/api`        | HTTP API for the dashboard (Fastify)                                                          |
+| `apps/dashboard`  | Web dashboard (React + Vite)                                                                  |
+| `scripts/`        | Repository checks, such as the secret scanner                                                 |
+| `docs/`           | Architecture and decision records                                                             |
 
 ## Run it locally
 
@@ -42,6 +44,12 @@ corepack enable
 pnpm install
 cp .env.example .env
 ```
+
+The API and engine dev/start commands read the root `.env` if it exists. It contains
+only local demo defaults; real credentials must come from a protected environment,
+secret manager, or encrypted configuration as described in [configuration](docs/configuration.md).
+`DATABASE_URL` is required even before a database connection is opened. The default
+market-data mode is offline fixtures. The API binds only to `127.0.0.1`.
 
 Start each part in its own terminal:
 
@@ -75,7 +83,10 @@ CI (`.github/workflows/ci.yml`) runs the same checks on every pull request.
 
 - Never commit `.env`, keypair files or private keys. `.gitignore` covers the usual
   names, and `pnpm check:secrets` and CI catch anything that slips through.
-- Wallet keys are loaded only by the executor, encrypted at rest (BOT-4 defines how).
+- The paper runtime rejects wallet keys. Future live-executor key access belongs to BOT-8/20.
+- The API/engine use the shared redacted logger; raw Fastify request/error logs are disabled.
+- Encrypted secret envelopes are authenticated before use; the encryption key stays in a
+  separate protected source. See [configuration and secrets](docs/configuration.md).
 - Each bot has its own small hot wallet. Never point a bot at your main wallet.
 
 ## Rules for this project

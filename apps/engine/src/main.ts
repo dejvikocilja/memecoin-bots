@@ -1,18 +1,21 @@
-import { parseBotMode } from '@memebots/core';
+import { createAppContext } from '@memebots/config';
 
 import { createEngine } from './engine.js';
 
-// Config loading moves to the typed loader from BOT-4; until then only BOT_MODE is read.
-const engine = createEngine({
-  mode: parseBotMode(process.env.BOT_MODE),
-  log: (message) => process.stdout.write(`[engine] ${message}\n`),
-});
-
-engine.start();
-
-for (const signal of ['SIGINT', 'SIGTERM'] as const) {
-  process.once(signal, () => {
-    engine.stop();
-    process.exit(0);
+const context = createAppContext(process.env, (line) => process.stdout.write(`${line}\n`));
+if (!context) {
+  process.exitCode = 1;
+} else {
+  const { config, logger } = context;
+  const engine = createEngine({
+    mode: config.mode,
+    log: (message) => logger.info('engine_status', { message }),
   });
+  engine.start();
+  for (const signal of ['SIGINT', 'SIGTERM'] as const) {
+    process.once(signal, () => {
+      engine.stop();
+      process.exit(0);
+    });
+  }
 }

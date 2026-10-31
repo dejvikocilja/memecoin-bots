@@ -14,10 +14,11 @@
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "dev": "tsx watch --conditions=@memebots/source src/main.ts",
-    "start": "node dist/main.js"
+    "dev": "tsx watch --env-file-if-exists=../../.env --conditions=@memebots/source src/main.ts",
+    "start": "node --env-file-if-exists=../../.env dist/main.js"
   },
   "dependencies": {
-    "@memebots/core": "workspace:*"
+    "@memebots/core": "workspace:*",
+    "@memebots/config": "workspace:*"
   }
 }

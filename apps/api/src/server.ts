@@ -1,6 +1,7 @@
 import Fastify from 'fastify';
 import type { FastifyInstance } from 'fastify';
 import type { BotMode } from '@memebots/core';
+import type { AppLogger } from '@memebots/config';
 
 export interface HealthResponse {
   readonly status: 'ok';
@@ -10,11 +11,34 @@ export interface HealthResponse {
 
 export interface ServerOptions {
   readonly mode: BotMode;
-  readonly logger?: boolean;
+  readonly logger?: AppLogger;
 }
 
-export function buildServer({ mode, logger = false }: ServerOptions): FastifyInstance {
-  const app = Fastify({ logger });
+export function buildServer({ mode, logger }: ServerOptions): FastifyInstance {
+  // Disable Fastify/Pino's raw request/error sink; all application output uses the shared logger.
+  const app = Fastify({ logger: false });
+
+  app.addHook('onResponse', async (request, reply) => {
+    logger?.info('http_response', { method: request.method, statusCode: reply.statusCode });
+  });
+  app.setErrorHandler((error, _request, reply) => {
+    logger?.error('http_request_failed', { error });
+    // Do not reflect a provider/database exception (which could contain credentials) to the client.
+    let status = 500;
+    try {
+      const code: unknown =
+        typeof error === 'object' && error !== null
+          ? Object.getOwnPropertyDescriptor(error, 'statusCode')?.value
+          : undefined;
+      if (typeof code === 'number' && Number.isInteger(code) && code >= 400 && code < 500)
+        status = code;
+    } catch {
+      // A thrown proxy/accessor must not create a second, unredacted error path.
+    }
+    void reply
+      .code(status)
+      .send({ error: status === 500 ? 'Internal server error' : 'Request failed' });
+  });
 
   app.get('/health', async (): Promise<HealthResponse> => ({
     status: 'ok',
