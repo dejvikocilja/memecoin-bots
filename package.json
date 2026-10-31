@@ -18,6 +18,7 @@
     "check:secrets": "node scripts/check-no-secrets.mjs",
     "check": "pnpm check:secrets && pnpm lint && pnpm typecheck && pnpm test && pnpm build",
     "dev:engine": "pnpm --filter @memebots/engine dev",
+    "dev:market-data": "pnpm --filter @memebots/market-data collect",
     "dev:api": "pnpm --filter @memebots/api dev",
     "dev:dashboard": "pnpm --filter @memebots/dashboard dev"
   },

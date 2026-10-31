@@ -71,6 +71,13 @@ docker compose up -d postgres
 
 CI (`.github/workflows/ci.yml`) runs the same checks on every pull request.
 
+### Market snapshots (BOT-7)
+
+The optional read-only collector batches tracked Solana tokens through the free DEX
+Screener API and stores observations, unavailable outcomes and restart gaps in PostgreSQL.
+It has no trading or signing interface. See [market data](docs/market-data.md) for
+setup, data limitations, the 200-token capacity test and backup/restore.
+
 ## Secrets
 
 - Never commit `.env`, keypair files or private keys. `.gitignore` covers the usual

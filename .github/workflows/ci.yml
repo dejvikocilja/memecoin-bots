@@ -11,6 +11,20 @@ permissions:
 jobs:
   check:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: memebots
+          POSTGRES_PASSWORD: memebots
+          POSTGRES_DB: market_feed_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U memebots"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      MARKET_DATA_TEST_DATABASE_URL: postgres://memebots:memebots@127.0.0.1:5432/market_feed_test
+      REQUIRE_MARKET_DATA_DB_TESTS: '1'
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
