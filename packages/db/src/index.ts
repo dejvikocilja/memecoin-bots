@@ -3,4 +3,6 @@ export * from './pool.js';
 export * from './positions.js';
 export * from './audit.js';
 export * from './safety.js';
+export * from './monitoring.js';
+export * from './risk-profiles.js';
 export * from './wallet-management/index.js';

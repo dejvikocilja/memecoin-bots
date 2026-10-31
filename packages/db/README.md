@@ -46,11 +46,22 @@ await migrateUp(pool);
 const open = await loadOpenPositions(pool); // everything the exit manager needs after a restart
 ```
 
+Risk profiles are seeded and editable through the local CLI and transactional
+service; see [profile values, validation and editing](../../docs/risk/PROFILES.md).
+
 ## Tests
 
 The tests run against a real PostgreSQL database named in `TEST_DATABASE_URL`. Its name
 must end in `_test` because the tests wipe it. Without it the database tests are skipped
 locally; CI always runs them.
+
+## Monitoring and canonical audit
+
+Migration 0012 adds fenced bot heartbeat leases, incidents, immutable incident events,
+logger delivery receipts and nonsecret startup snapshots. Database triggers audit
+order/veto and whitelisted bot, wallet-cap and risk-policy changes atomically.
+See [monitoring and audit](../../docs/architecture/MONITORING.md) for process launch,
+timing guarantees, exact coverage, event naming and rollback limits.
 
 BOT-8 adds public `wallet_spend_state` and durable `wallet_reservations` tables,
 transactional provisioning and fee-inclusive spending services. See

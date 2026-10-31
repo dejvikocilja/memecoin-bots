@@ -17,7 +17,8 @@
     "dev": "tsx watch --env-file-if-exists=../../.env --conditions=@memebots/source src/main.ts",
     "start": "node --env-file-if-exists=../../.env dist/main.js",
     "smoke:discovery": "tsx --env-file-if-exists=../../.env --conditions=@memebots/source src/market-data/smoke.ts",
-    "scan:safety": "tsx --env-file-if-exists=../../.env --conditions=@memebots/source src/safety/cli.ts"
+    "scan:safety": "tsx --env-file-if-exists=../../.env --conditions=@memebots/source src/safety/cli.ts",
+    "monitor": "tsx --env-file-if-exists=../../.env --conditions=@memebots/source src/monitoring/cli.ts"
   },
   "dependencies": {
     "@memebots/core": "workspace:*",
