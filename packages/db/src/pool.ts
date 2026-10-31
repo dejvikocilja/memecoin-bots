@@ -5,11 +5,24 @@ export type Queryable = Pick<pg.Pool, 'query'> | Pick<pg.PoolClient, 'query'>;
 
 export type Pool = pg.Pool;
 
-export function createPool(connectionString: string, options: { max?: number } = {}): pg.Pool {
+export function createPool(
+  connectionString: string,
+  options: { max?: number; timeoutMs?: number } = {},
+): pg.Pool {
   if (connectionString.trim() === '') {
     throw new Error('DATABASE_URL is empty. Copy .env.example to .env and set it.');
   }
-  return new pg.Pool({ connectionString, max: options.max ?? 10 });
+  return new pg.Pool({
+    connectionString,
+    max: options.max ?? 10,
+    ...(options.timeoutMs === undefined
+      ? {}
+      : {
+          connectionTimeoutMillis: options.timeoutMs,
+          query_timeout: options.timeoutMs,
+          statement_timeout: Math.max(1, options.timeoutMs - 500),
+        }),
+  });
 }
 
 /** Runs `fn` inside a transaction on one connection; rolls back if it throws. */

@@ -159,7 +159,13 @@ describe('discovery service over real WebSocket and HTTP', () => {
     const context = await setup((attempt) => ({
       body: { jsonrpc: '2.0', id: 1, result: attempt === 1 ? null : transaction() },
     }));
-    const listener = createDiscoveryListener({ ...context, log: () => {}, random: () => 0 });
+    const health: { failed: boolean; code: string }[] = [];
+    const listener = createDiscoveryListener({
+      ...context,
+      log: () => {},
+      random: () => 0,
+      onHealth: (failed, code) => health.push({ failed, code }),
+    });
     close.push(() => listener.stop());
     listener.start();
     await expect.poll(() => listener.status().connection).toBe('ready');
@@ -174,6 +180,10 @@ describe('discovery service over real WebSocket and HTTP', () => {
       'pool-created',
     ]);
     expect(context.attempts).toBe(2);
+    expect(health.filter((entry) => entry.code === 'rpc')).toEqual([
+      { failed: true, code: 'rpc' },
+      { failed: false, code: 'rpc' },
+    ]);
     context.peer.sockets[0]!.destroy();
     await expect.poll(() => context.peer.sockets.length).toBe(2);
     await expect.poll(() => listener.status().connection).toBe('ready');
@@ -181,6 +191,11 @@ describe('discovery service over real WebSocket and HTTP', () => {
     send(context.peer, 1, cpmm, cpmmLogs, 3);
     await expect.poll(() => listener.status().duplicates).toBeGreaterThan(1);
     expect(context.events).toHaveLength(2);
+    expect(health.filter((entry) => entry.code === 'transport')).toEqual([
+      { failed: false, code: 'transport' },
+      { failed: true, code: 'transport' },
+      { failed: false, code: 'transport' },
+    ]);
     expect(listener.status()).toMatchObject({
       gapDetected: true,
       degraded: true,

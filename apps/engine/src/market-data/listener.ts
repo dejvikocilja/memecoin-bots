@@ -47,6 +47,7 @@ interface ListenerOptions {
     signal: AbortSignal,
   ) => Promise<RpcTransaction | null>;
   readonly random?: () => number;
+  readonly onHealth?: (failed: boolean, code: 'transport' | 'rpc') => void;
 }
 
 export function createDiscoveryListener(options: ListenerOptions): DiscoveryListener {
@@ -125,6 +126,7 @@ export function createDiscoveryListener(options: ListenerOptions): DiscoveryList
         // A provider returning the wrong slot is not usable provenance.
         if (transaction.slot !== job.notification.slot)
           throw new Error('Transaction slot mismatch');
+        options.onHealth?.(false, 'rpc');
         if (transaction.meta.err !== null) {
           finish(job);
           return;
@@ -143,6 +145,7 @@ export function createDiscoveryListener(options: ListenerOptions): DiscoveryList
       })
       .catch((error: unknown) => {
         if (!running || generation !== currentGeneration) return;
+        options.onHealth?.(true, 'rpc');
         if (error instanceof RpcRequestError)
           nextRequestAt = Math.max(nextRequestAt, Date.now() + error.retryAfterMs);
         if (job.attempts <= config.retryLimit) {
@@ -196,13 +199,16 @@ export function createDiscoveryListener(options: ListenerOptions): DiscoveryList
     },
     (state) => {
       if (state === 'reconnecting' && connection !== 'reconnecting') {
+        options.onHealth?.(true, 'transport');
         gapDetected = true;
         reconnects++;
         // Only state transitions are logged, never raw endpoints or provider errors.
         log('discovery reconnecting; observations may be missing during the gap');
       }
-      if (state === 'ready' && connection !== 'ready')
+      if (state === 'ready' && connection !== 'ready') {
+        options.onHealth?.(false, 'transport');
         log('discovery subscriptions ready (confirmed)');
+      }
       connection = state;
     },
     options.createSocket,

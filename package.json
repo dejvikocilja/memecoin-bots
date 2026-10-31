@@ -24,6 +24,8 @@
     "db:migrate": "pnpm --filter @memebots/db migrate up",
     "db:rollback": "pnpm --filter @memebots/db migrate down",
     "db:status": "pnpm --filter @memebots/db migrate status",
+    "scan:safety": "pnpm --filter @memebots/engine scan:safety",
+    "monitor": "pnpm --filter @memebots/engine monitor",
     "wallet": "pnpm --filter @memebots/db wallet"
   },
   "devDependencies": {

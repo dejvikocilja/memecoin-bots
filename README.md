@@ -72,8 +72,12 @@ pnpm dev:dashboard   # dashboard on http://127.0.0.1:5173
 For free public read-only discovery, run `MARKET_DATA_ENABLED=true pnpm dev:engine`.
 This is independent of `BOT_MARKET_DATA`, which may remain `fixtures`.
 
+The engine now requires a migrated database for durable startup audit and bot heartbeat leases.
+Run `pnpm monitor watch` as a separate supervised process for stall and provider alerts;
+`pnpm monitor health` reads current state. See [monitoring and audit](docs/architecture/MONITORING.md).
+
 Database commands: `pnpm db:migrate`, `pnpm db:status`, `pnpm db:rollback [steps]`
-(see `packages/db/README.md`). Discovery does not open a database connection.
+(see `packages/db/README.md`). The discovery listener itself does not open a database connection; engine monitoring owns its DB pool.
 
 ## Checks
 
@@ -123,3 +127,11 @@ using read-only Jupiter V2 amount quotes, with durable exact accounting, determi
 latency/slippage/failure scenarios and restart recovery. The owner demo is explicitly
 marked as a manual paper scenario; no production risk manager or live execution is
 enabled. See [paper execution and evidence limits](docs/paper-broker.md).
+
+### Token safety evidence (BOT-9)
+
+`pnpm scan:safety <mint> --once` collects bounded read-only classic-SPL RPC facts,
+keeps durable evidence and policy history, and emits a fail-closed JSON report.
+All six checks are mandatory. Positive live LP, developer attribution, sell
+simulation and bundle coverage remain unsupported and explicitly deny. See
+[token safety setup, engineering policies and coverage limits](docs/token-safety.md).

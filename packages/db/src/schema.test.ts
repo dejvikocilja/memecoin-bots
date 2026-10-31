@@ -29,7 +29,8 @@ describe.skipIf(!hasTestDatabase)('schema', () => {
         trailing_stop_fraction, min_reward_risk, max_open_positions, daily_loss_limit_fraction,
         max_slippage_bps, min_liquidity_usd, min_safety_score, max_hold_minutes, losing_streak_limit)
       VALUES ('balanced', 'Balanced', 0.02, 0.20, '[{"atGain":0.3,"sellFraction":0.4},{"atGain":0.6,"sellFraction":0.3}]',
-        0.15, 2, 5, 0.06, 300, 50000, 60, 720, 4)`);
+        0.15, 2, 5, 0.06, 300, 50000, 60, 720, 4)
+      ON CONFLICT (id) DO UPDATE SET max_hold_minutes = 720`);
     await pool.query(
       `INSERT INTO tokens (mint, symbol, decimals) VALUES ($1, 'AAA', 6), ($2, 'BBB', 5)`,
       [MINT_A, MINT_B],
@@ -130,8 +131,9 @@ describe.skipIf(!hasTestDatabase)('schema', () => {
         pool.query(`
           INSERT INTO risk_profiles (id, display_name, position_fraction, stop_loss_fraction, min_reward_risk,
             max_open_positions, daily_loss_limit_fraction, max_slippage_bps, min_liquidity_usd, min_safety_score,
-            max_hold_minutes, losing_streak_limit)
-          VALUES ('yolo', 'Yolo', 0.25, 0.5, 5, 10, 0.2, 1000, 0, 10, 60, 3)`),
+            max_hold_minutes, losing_streak_limit, take_profit_ladder)
+          VALUES ('yolo', 'Yolo', 0.25, 0.5, 5, 10, 0.2, 1000, 0, 10, 60, 3,
+            '[{"atGain":1,"sellFraction":1}]')`),
       ).rejects.toThrow(/position_fraction/);
     });
 
