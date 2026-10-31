@@ -73,9 +73,13 @@ describe.skipIf(!hasTestDatabase)('wallet persistence and atomic spending', () =
     expect(a).toEqual(b);
     expect(await vault.listIds()).toEqual([a.walletId]);
     expect((await pool.query('SELECT * FROM wallets')).rowCount).toBe(1);
-    const audit = (await pool.query('SELECT details FROM audit_log')).rows;
-    expect(audit).toEqual([
-      { details: { botId: a.botId, publicKey: a.publicKey, spendCapLamports: '100' } },
+    const audit = (await pool.query('SELECT action, details FROM audit_log')).rows;
+    // Other migrations may add complementary entity/config audit events.
+    expect(audit.filter((row) => row.action === 'wallet.provisioned')).toEqual([
+      {
+        action: 'wallet.provisioned',
+        details: { botId: a.botId, publicKey: a.publicKey, spendCapLamports: '100' },
+      },
     ]);
     const dump =
       JSON.stringify((await pool.query('SELECT * FROM wallets')).rows) +
