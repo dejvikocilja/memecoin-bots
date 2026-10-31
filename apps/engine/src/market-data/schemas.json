@@ -1,0 +1,659 @@
+{
+  "notice": "Selected schema fragments from the immutable primary sources below; no schemas are downloaded at runtime. CLMM event discriminator is Anchor sha256(event:PoolCreatedEvent)[:8].",
+  "sources": [
+    {
+      "repo": "pump-fun/pump-public-docs",
+      "commit": "639b87fb45c3adeffa6f7c4a1bf0cb85e392bf22",
+      "path": "idl/pump.json",
+      "url": "https://raw.githubusercontent.com/pump-fun/pump-public-docs/639b87fb45c3adeffa6f7c4a1bf0cb85e392bf22/idl/pump.json",
+      "sha256": "7616681ea557975f9f623ac211080f22a93060781eaf4765b0a488d980997207"
+    },
+    {
+      "repo": "pump-fun/pump-public-docs",
+      "commit": "639b87fb45c3adeffa6f7c4a1bf0cb85e392bf22",
+      "path": "idl/pump_amm.json",
+      "url": "https://raw.githubusercontent.com/pump-fun/pump-public-docs/639b87fb45c3adeffa6f7c4a1bf0cb85e392bf22/idl/pump_amm.json",
+      "sha256": "b7d8c57a4d9c4dd0109a9ab893052352333252d4eedced10ac091d4d66cab89b"
+    },
+    {
+      "repo": "MeteoraAg/dlmm-sdk",
+      "commit": "af36dd53ab180783ccecda306926189a4700953c",
+      "path": "idls/dlmm.json",
+      "url": "https://raw.githubusercontent.com/MeteoraAg/dlmm-sdk/af36dd53ab180783ccecda306926189a4700953c/idls/dlmm.json",
+      "sha256": "045c0f4af044be046b6a14b350077e4242e8ac026b64a855803dab30fcdd8b35"
+    },
+    {
+      "repo": "MeteoraAg/cp-amm-sdk",
+      "commit": "b66412daefab1edfddbc98f9655ddd2733fe021d",
+      "path": "src/idl/cp_amm.json",
+      "url": "https://raw.githubusercontent.com/MeteoraAg/cp-amm-sdk/b66412daefab1edfddbc98f9655ddd2733fe021d/src/idl/cp_amm.json",
+      "sha256": "7f5e5f5e9cab57cd208575dc53359676550e41ee0c19fc822560fe1062fd3ac5"
+    },
+    {
+      "repo": "MeteoraAg/dynamic-amm-sdk",
+      "commit": "ce126d668a49ef099e16efd729687341c923c11f",
+      "path": "ts-client/src/amm/idl.json",
+      "url": "https://raw.githubusercontent.com/MeteoraAg/dynamic-amm-sdk/ce126d668a49ef099e16efd729687341c923c11f/ts-client/src/amm/idl.json",
+      "sha256": "9529f39319eabfac4c9a3c5a05745d190eccdd9d121087cefbc887df25f7e3cc"
+    },
+    {
+      "repo": "raydium-io/raydium-cp-swap",
+      "commit": "f4b9b26342afe9122d5ff67cd7a4f19ded4ac0a5",
+      "path": "programs/cp-swap/src/lib.rs",
+      "url": "https://raw.githubusercontent.com/raydium-io/raydium-cp-swap/f4b9b26342afe9122d5ff67cd7a4f19ded4ac0a5/programs/cp-swap/src/lib.rs",
+      "sha256": "d4151c3959d5b066d459e02f8ffcb45c842944231d68aaff659909c232639f7b"
+    },
+    {
+      "repo": "raydium-io/raydium-cp-swap",
+      "commit": "f4b9b26342afe9122d5ff67cd7a4f19ded4ac0a5",
+      "path": "programs/cp-swap/src/instructions/initialize.rs",
+      "url": "https://raw.githubusercontent.com/raydium-io/raydium-cp-swap/f4b9b26342afe9122d5ff67cd7a4f19ded4ac0a5/programs/cp-swap/src/instructions/initialize.rs",
+      "sha256": "d198b84c00331774218b43533979443b256089a160f76a4fa9a5e45a51cace20"
+    },
+    {
+      "repo": "raydium-io/raydium-clmm",
+      "commit": "6d7a0f82d2f293c553c69aaf943377367c6c4cc6",
+      "path": "programs/amm/src/lib.rs",
+      "url": "https://raw.githubusercontent.com/raydium-io/raydium-clmm/6d7a0f82d2f293c553c69aaf943377367c6c4cc6/programs/amm/src/lib.rs",
+      "sha256": "029192ea8dcf67396dd5fd3d674550a5bad840ddf69f0e3340bc5f3cbd673a45"
+    },
+    {
+      "repo": "raydium-io/raydium-clmm",
+      "commit": "6d7a0f82d2f293c553c69aaf943377367c6c4cc6",
+      "path": "programs/amm/src/states/pool.rs",
+      "url": "https://raw.githubusercontent.com/raydium-io/raydium-clmm/6d7a0f82d2f293c553c69aaf943377367c6c4cc6/programs/amm/src/states/pool.rs",
+      "sha256": "f9f8927810502ba5aed4a31ad088e368246d3957398608b24a1f8a3c9ef4ba3f"
+    },
+    {
+      "repo": "raydium-io/raydium-clmm",
+      "commit": "6d7a0f82d2f293c553c69aaf943377367c6c4cc6",
+      "path": "programs/amm/src/instructions/create_pool.rs",
+      "url": "https://raw.githubusercontent.com/raydium-io/raydium-clmm/6d7a0f82d2f293c553c69aaf943377367c6c4cc6/programs/amm/src/instructions/create_pool.rs",
+      "sha256": "1126d5917affaf39e4d06d7b84fdba1b9bdff5ee8417ed066b6dce7b500b8207"
+    },
+    {
+      "repo": "raydium-io/raydium-amm",
+      "commit": "91739d8d9f5cf347e0ce14ebe4d2bb7069fb31b6",
+      "path": "program/src/lib.rs",
+      "url": "https://raw.githubusercontent.com/raydium-io/raydium-amm/91739d8d9f5cf347e0ce14ebe4d2bb7069fb31b6/program/src/lib.rs",
+      "sha256": "d0f63c766de4898d44043bb4bf69294b5dfdbc5081b284eeb6b40d43ebaa3756"
+    },
+    {
+      "repo": "raydium-io/raydium-amm",
+      "commit": "91739d8d9f5cf347e0ce14ebe4d2bb7069fb31b6",
+      "path": "program/src/instruction.rs",
+      "url": "https://raw.githubusercontent.com/raydium-io/raydium-amm/91739d8d9f5cf347e0ce14ebe4d2bb7069fb31b6/program/src/instruction.rs",
+      "sha256": "499a331b01a1142975dece9ca7258a937ae0598422c33ec516c2f3e4883e0818"
+    },
+    {
+      "repo": "raydium-io/raydium-amm",
+      "commit": "91739d8d9f5cf347e0ce14ebe4d2bb7069fb31b6",
+      "path": "program/src/processor.rs",
+      "url": "https://raw.githubusercontent.com/raydium-io/raydium-amm/91739d8d9f5cf347e0ce14ebe4d2bb7069fb31b6/program/src/processor.rs",
+      "sha256": "31eed8ed2736fa2d2ee3a2ad072a4025766ef828bc2ddfbf26a1ec8669c91fe6"
+    },
+    {
+      "repo": "raydium-io/raydium-cp-swap",
+      "commit": "f4b9b26342afe9122d5ff67cd7a4f19ded4ac0a5",
+      "path": "programs/cp-swap/src/instructions/initialize_with_permission.rs",
+      "url": "https://raw.githubusercontent.com/raydium-io/raydium-cp-swap/f4b9b26342afe9122d5ff67cd7a4f19ded4ac0a5/programs/cp-swap/src/instructions/initialize_with_permission.rs",
+      "sha256": "c70e2df7310661de52fdcd35d09b0d4f6e621fa94e865a5b4627f2e3edc03b04"
+    },
+    {
+      "repo": "raydium-io/raydium-cp-swap",
+      "commit": "f4b9b26342afe9122d5ff67cd7a4f19ded4ac0a5",
+      "path": "programs/cp-swap/src/states/pool.rs",
+      "url": "https://raw.githubusercontent.com/raydium-io/raydium-cp-swap/f4b9b26342afe9122d5ff67cd7a4f19ded4ac0a5/programs/cp-swap/src/states/pool.rs",
+      "sha256": "e2a836869400bf3cbe3aa52e664235620f82a5c701edd4ced75789f6d7d124ad"
+    }
+  ],
+  "programs": [
+    {
+      "programId": "6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P",
+      "events": [
+        {
+          "name": "CompleteEvent",
+          "discriminator": [95, 114, 97, 156, 212, 46, 152, 8]
+        },
+        {
+          "name": "CreateEvent",
+          "discriminator": [27, 114, 169, 77, 222, 235, 99, 118]
+        }
+      ],
+      "types": {
+        "CreateEvent": {
+          "kind": "struct",
+          "fields": [
+            {
+              "name": "name",
+              "type": "string"
+            },
+            {
+              "name": "symbol",
+              "type": "string"
+            },
+            {
+              "name": "uri",
+              "type": "string"
+            },
+            {
+              "name": "mint",
+              "type": "pubkey"
+            },
+            {
+              "name": "bonding_curve",
+              "type": "pubkey"
+            },
+            {
+              "name": "user",
+              "type": "pubkey"
+            },
+            {
+              "name": "creator",
+              "type": "pubkey"
+            },
+            {
+              "name": "timestamp",
+              "type": "i64"
+            },
+            {
+              "name": "virtual_token_reserves",
+              "type": "u64"
+            },
+            {
+              "name": "virtual_sol_reserves",
+              "type": "u64"
+            },
+            {
+              "name": "real_token_reserves",
+              "type": "u64"
+            },
+            {
+              "name": "token_total_supply",
+              "type": "u64"
+            },
+            {
+              "name": "token_program",
+              "type": "pubkey"
+            },
+            {
+              "name": "is_mayhem_mode",
+              "type": "bool"
+            },
+            {
+              "name": "is_cashback_enabled",
+              "type": "bool"
+            },
+            {
+              "name": "quote_mint",
+              "type": "pubkey"
+            },
+            {
+              "name": "virtual_quote_reserves",
+              "type": "u64"
+            },
+            {
+              "name": "creator_fee_bps",
+              "type": "u64"
+            },
+            {
+              "name": "is_holder_reward",
+              "type": "bool"
+            },
+            {
+              "name": "depth",
+              "type": "u8"
+            }
+          ]
+        },
+        "CompleteEvent": {
+          "kind": "struct",
+          "fields": [
+            {
+              "name": "user",
+              "type": "pubkey"
+            },
+            {
+              "name": "mint",
+              "type": "pubkey"
+            },
+            {
+              "name": "bonding_curve",
+              "type": "pubkey"
+            },
+            {
+              "name": "timestamp",
+              "type": "i64"
+            },
+            {
+              "name": "quote_mint",
+              "type": "pubkey"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "programId": "pAMMBay6oceH9fJKBRHGP5D4bD4sWpmSwMn52FMfXEA",
+      "events": [
+        {
+          "name": "CreatePoolEvent",
+          "discriminator": [177, 49, 12, 210, 160, 118, 167, 116]
+        }
+      ],
+      "types": {
+        "CreatePoolEvent": {
+          "kind": "struct",
+          "fields": [
+            {
+              "name": "timestamp",
+              "type": "i64"
+            },
+            {
+              "name": "index",
+              "type": "u16"
+            },
+            {
+              "name": "creator",
+              "type": "pubkey"
+            },
+            {
+              "name": "base_mint",
+              "type": "pubkey"
+            },
+            {
+              "name": "quote_mint",
+              "type": "pubkey"
+            },
+            {
+              "name": "base_mint_decimals",
+              "type": "u8"
+            },
+            {
+              "name": "quote_mint_decimals",
+              "type": "u8"
+            },
+            {
+              "name": "base_amount_in",
+              "type": "u64"
+            },
+            {
+              "name": "quote_amount_in",
+              "type": "u64"
+            },
+            {
+              "name": "pool_base_amount",
+              "type": "u64"
+            },
+            {
+              "name": "pool_quote_amount",
+              "type": "u64"
+            },
+            {
+              "name": "minimum_liquidity",
+              "type": "u64"
+            },
+            {
+              "name": "initial_liquidity",
+              "type": "u64"
+            },
+            {
+              "name": "lp_token_amount_out",
+              "type": "u64"
+            },
+            {
+              "name": "pool_bump",
+              "type": "u8"
+            },
+            {
+              "name": "pool",
+              "type": "pubkey"
+            },
+            {
+              "name": "lp_mint",
+              "type": "pubkey"
+            },
+            {
+              "name": "user_base_token_account",
+              "type": "pubkey"
+            },
+            {
+              "name": "user_quote_token_account",
+              "type": "pubkey"
+            },
+            {
+              "name": "coin_creator",
+              "type": "pubkey"
+            },
+            {
+              "name": "is_mayhem_mode",
+              "type": "bool"
+            },
+            {
+              "name": "creator_fee_bps",
+              "type": "u64"
+            },
+            {
+              "name": "can_edit_creator_fee",
+              "type": "bool"
+            },
+            {
+              "name": "is_holder_reward",
+              "type": "bool"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "programId": "LBUZKhRxPF3XUpBCjp4YzTKgLccjZhTSDM9YuVaPwxo",
+      "events": [
+        {
+          "name": "LbPairCreate",
+          "discriminator": [185, 74, 252, 125, 27, 215, 188, 111]
+        }
+      ],
+      "types": {
+        "LbPairCreate": {
+          "kind": "struct",
+          "fields": [
+            {
+              "name": "lb_pair",
+              "type": "pubkey"
+            },
+            {
+              "name": "bin_step",
+              "type": "u16"
+            },
+            {
+              "name": "token_x",
+              "type": "pubkey"
+            },
+            {
+              "name": "token_y",
+              "type": "pubkey"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "programId": "cpamdpZCGKUy5JxQXB4dcpGPiikHawvSWAd6mEn1sGG",
+      "events": [
+        {
+          "name": "EvtInitializePool",
+          "discriminator": [228, 50, 246, 85, 203, 66, 134, 37]
+        }
+      ],
+      "types": {
+        "EvtInitializePool": {
+          "kind": "struct",
+          "fields": [
+            {
+              "name": "pool",
+              "type": "pubkey"
+            },
+            {
+              "name": "token_a_mint",
+              "type": "pubkey"
+            },
+            {
+              "name": "token_b_mint",
+              "type": "pubkey"
+            },
+            {
+              "name": "creator",
+              "type": "pubkey"
+            },
+            {
+              "name": "payer",
+              "type": "pubkey"
+            },
+            {
+              "name": "alpha_vault",
+              "type": "pubkey"
+            },
+            {
+              "name": "pool_fees",
+              "type": {
+                "defined": {
+                  "name": "PoolFeeParameters"
+                }
+              }
+            },
+            {
+              "name": "sqrt_min_price",
+              "type": "u128"
+            },
+            {
+              "name": "sqrt_max_price",
+              "type": "u128"
+            },
+            {
+              "name": "activation_type",
+              "type": "u8"
+            },
+            {
+              "name": "collect_fee_mode",
+              "type": "u8"
+            },
+            {
+              "name": "liquidity",
+              "type": "u128"
+            },
+            {
+              "name": "sqrt_price",
+              "type": "u128"
+            },
+            {
+              "name": "activation_point",
+              "type": "u64"
+            },
+            {
+              "name": "token_a_flag",
+              "type": "u8"
+            },
+            {
+              "name": "token_b_flag",
+              "type": "u8"
+            },
+            {
+              "name": "token_a_amount",
+              "type": "u64"
+            },
+            {
+              "name": "token_b_amount",
+              "type": "u64"
+            },
+            {
+              "name": "total_amount_a",
+              "type": "u64"
+            },
+            {
+              "name": "total_amount_b",
+              "type": "u64"
+            },
+            {
+              "name": "pool_type",
+              "type": "u8"
+            }
+          ]
+        },
+        "PoolFeeParameters": {
+          "kind": "struct",
+          "fields": [
+            {
+              "name": "base_fee",
+              "type": {
+                "defined": {
+                  "name": "BaseFeeParameters"
+                }
+              }
+            },
+            {
+              "name": "compounding_fee_bps",
+              "type": "u16"
+            },
+            {
+              "name": "padding",
+              "type": "u8"
+            },
+            {
+              "name": "dynamic_fee",
+              "type": {
+                "option": {
+                  "defined": {
+                    "name": "DynamicFeeParameters"
+                  }
+                }
+              }
+            }
+          ]
+        },
+        "BaseFeeParameters": {
+          "kind": "struct",
+          "fields": [
+            {
+              "name": "data",
+              "type": {
+                "array": ["u8", 27]
+              }
+            }
+          ]
+        },
+        "DynamicFeeParameters": {
+          "kind": "struct",
+          "fields": [
+            {
+              "name": "bin_step",
+              "type": "u16"
+            },
+            {
+              "name": "bin_step_u128",
+              "type": "u128"
+            },
+            {
+              "name": "filter_period",
+              "type": "u16"
+            },
+            {
+              "name": "decay_period",
+              "type": "u16"
+            },
+            {
+              "name": "reduction_factor",
+              "type": "u16"
+            },
+            {
+              "name": "max_volatility_accumulator",
+              "type": "u32"
+            },
+            {
+              "name": "variable_fee_control",
+              "type": "u32"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "programId": "Eo7WjKq67rjJQSZxS6z3YkapzY3eMj6Xy8X5EQVn5UaB",
+      "events": [
+        {
+          "name": "PoolCreated",
+          "discriminator": [202, 44, 41, 88, 104, 220, 157, 82]
+        }
+      ],
+      "types": {
+        "PoolCreated": {
+          "kind": "struct",
+          "fields": [
+            {
+              "name": "lp_mint",
+              "type": "pubkey"
+            },
+            {
+              "name": "token_a_mint",
+              "type": "pubkey"
+            },
+            {
+              "name": "token_b_mint",
+              "type": "pubkey"
+            },
+            {
+              "name": "pool_type",
+              "type": {
+                "defined": {
+                  "name": "PoolType"
+                }
+              }
+            },
+            {
+              "name": "pool",
+              "type": "pubkey"
+            }
+          ]
+        },
+        "PoolType": {
+          "kind": "enum",
+          "variants": [
+            {
+              "name": "Permissioned"
+            },
+            {
+              "name": "Permissionless"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "programId": "CAMMCzo5YL8w4VFF8KVHrK22GGUsp5VTaW7grrKgrWqK",
+      "events": [
+        {
+          "name": "PoolCreatedEvent",
+          "discriminator": [25, 94, 75, 47, 112, 99, 53, 63]
+        }
+      ],
+      "types": {
+        "PoolCreatedEvent": {
+          "kind": "struct",
+          "fields": [
+            {
+              "name": "token_mint_0",
+              "type": "pubkey"
+            },
+            {
+              "name": "token_mint_1",
+              "type": "pubkey"
+            },
+            {
+              "name": "tick_spacing",
+              "type": "u16"
+            },
+            {
+              "name": "pool_state",
+              "type": "pubkey"
+            },
+            {
+              "name": "sqrt_price_x64",
+              "type": "u128"
+            },
+            {
+              "name": "tick",
+              "type": "i32"
+            },
+            {
+              "name": "token_vault_0",
+              "type": "pubkey"
+            },
+            {
+              "name": "token_vault_1",
+              "type": "pubkey"
+            }
+          ]
+        }
+      }
+    }
+  ]
+}

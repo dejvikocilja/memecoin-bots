@@ -1,18 +1,24 @@
 import { parseBotMode } from '@memebots/core';
 
 import { createEngine } from './engine.js';
+import { createDiscoveryBus } from './market-data/bus.js';
+import { discoveryConfig } from './market-data/config.js';
+import { createDiscoveryListener } from './market-data/listener.js';
 
-// Config loading moves to the typed loader from BOT-4; until then only BOT_MODE is read.
-const engine = createEngine({
-  mode: parseBotMode(process.env.BOT_MODE),
-  log: (message) => process.stdout.write(`[engine] ${message}\n`),
+const log = (message: string) => {
+  process.stdout.write(`[engine] ${message}\n`);
+};
+const discovery = createDiscoveryListener({
+  config: discoveryConfig(),
+  bus: createDiscoveryBus(() => log('discovery subscriber failed')),
+  log,
 });
-
+const engine = createEngine({ mode: parseBotMode(process.env.BOT_MODE), log, discovery });
 engine.start();
 
 for (const signal of ['SIGINT', 'SIGTERM'] as const) {
   process.once(signal, () => {
     engine.stop();
-    process.exit(0);
+    process.exitCode = 0;
   });
 }

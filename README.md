@@ -19,8 +19,9 @@ holds the code.
 
 ## Status
 
-Scaffold only (task BOT-3). Nothing here can trade real funds yet: the engine refuses
-`live` mode until the live executor and kill switch are built.
+Paper-first scaffold with an opt-in read-only new pool and pump.fun launch listener
+(BOT-6). Nothing here can trade real funds yet: the engine refuses `live` mode until
+the live executor and kill switch are built. See [discovery setup, coverage and limits](docs/architecture/DISCOVERY.md).
 
 ## Layout
 
@@ -46,10 +47,13 @@ cp .env.example .env
 Start each part in its own terminal:
 
 ```bash
-pnpm dev:engine      # engine in paper mode
+pnpm dev:engine      # engine in paper mode, discovery disabled by default
 pnpm dev:api         # API on http://127.0.0.1:3001/health
 pnpm dev:dashboard   # dashboard on http://127.0.0.1:5173
 ```
+
+The scaffold reads shell environment variables; copying `.env` alone does not load them.
+For read-only discovery, run `MARKET_DATA_ENABLED=true pnpm dev:engine`.
 
 PostgreSQL is optional until the data model lands (BOT-5). To run one locally:
 
