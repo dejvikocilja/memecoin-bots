@@ -17,7 +17,7 @@ Source: ProjectBrain BOT specification v1, section 7, and ADR-1 (stack and hosti
 | --------------------------------------- | ------------------------------------- | ------------------- |
 | Shared types (modes, profiles, signals) | `packages/core`                       | BOT-3               |
 | Config and secrets                      | `packages/config`, used by engine/API | BOT-4               |
-| Data model and migrations               | to be added (`packages/db`)           | BOT-5               |
+| Data model and migrations               | `packages/db`                         | BOT-5               |
 | Market data, safety scanner             | `apps/engine`                         | BOT-6, BOT-7, BOT-9 |
 | Risk manager, exit manager, kill switch | `apps/engine`                         | Risk framework epic |
 | Paper broker, live executor             | `apps/engine`                         | Execution epic      |
