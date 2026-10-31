@@ -119,3 +119,11 @@ setup, data limitations, the 200-token capacity test and backup/restore.
 - Every fill is recorded with enough detail to serve as the tax record.
 
 See `CONTRIBUTING.md` for how work flows through ProjectBrain.
+
+### Token safety evidence (BOT-9)
+
+`pnpm scan:safety <mint> --once` collects bounded read-only classic-SPL RPC facts,
+keeps durable evidence and policy history, and emits a fail-closed JSON report.
+All six checks are mandatory. Positive live LP, developer attribution, sell
+simulation and bundle coverage remain unsupported and explicitly deny. See
+[token safety setup, engineering policies and coverage limits](docs/token-safety.md).
