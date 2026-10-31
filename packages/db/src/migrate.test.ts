@@ -5,11 +5,17 @@ import { createTestPool, hasTestDatabase, resetDatabase } from './test-db.js';
 
 const EXPECTED_TABLES = [
   'audit_log',
+  'bot_heartbeats',
   'bots',
   'fills',
+  'monitoring_deliveries',
+  'monitoring_events',
+  'monitoring_health',
+  'monitoring_incidents',
   'orders',
   'positions',
   'risk_profiles',
+  'runtime_config_snapshots',
   'schema_migrations',
   'tokens',
   'wallets',

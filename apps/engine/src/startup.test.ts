@@ -21,11 +21,11 @@ function start(env: Record<string, string>) {
 }
 
 describe('engine startup configuration boundary', () => {
-  it('starts in paper mode with a valid fixture configuration', () => {
+  it('fails closed when durable startup audit cannot reach the database', () => {
     const result = start({ DATABASE_URL: 'postgresql://127.0.0.1/bot_paper' });
-    expect(result.status).toBe(0);
-    expect(JSON.parse(result.stdout).event).toBe('engine_status');
-    expect(result.stdout).toContain('paper');
+    expect(result.status).toBe(1);
+    expect(JSON.parse(result.stdout).event).toBe('engine_startup_failed');
+    expect(result.stdout).not.toContain('engine_status');
   });
   it.each([
     [{}, 'DATABASE_URL'],
