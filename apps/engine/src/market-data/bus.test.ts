@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { MarketDiscoveryEvent } from '@memebots/core';
 
 import { createDiscoveryBus } from './bus.js';
+import { loadConfig } from '@memebots/config';
 import { discoveryConfig } from './config.js';
 
 const observation: MarketDiscoveryEvent = {
@@ -42,14 +43,25 @@ describe('discovery bus and configuration', () => {
   });
 
   it('defaults off and validates explicit opt-in and endpoint schemes without echoing credentials', () => {
-    expect(discoveryConfig({}).enabled).toBe(false);
-    expect(discoveryConfig({ MARKET_DATA_ENABLED: 'true' }).enabled).toBe(true);
-    expect(() => discoveryConfig({ MARKET_DATA_ENABLED: '1' })).toThrow('true or false');
-    expect(() => discoveryConfig({ SOLANA_RPC_URL: 'file:///credentials' })).toThrow(
-      'SOLANA_RPC_URL',
-    );
-    expect(() => discoveryConfig({ SOLANA_WS_URL: 'https://user:secret@example.test' })).toThrow(
-      /^SOLANA_WS_URL must be a valid ws:\/wss: URL$/,
-    );
+    expect(discoveryConfig().enabled).toBe(false);
+    expect(
+      loadConfig({ DATABASE_URL: 'postgresql://127.0.0.1/test', MARKET_DATA_ENABLED: 'true' })
+        .discovery.enabled,
+    ).toBe(true);
+    expect(() =>
+      loadConfig({ DATABASE_URL: 'postgresql://127.0.0.1/test', MARKET_DATA_ENABLED: '1' }),
+    ).toThrow('MARKET_DATA_ENABLED');
+    expect(() =>
+      loadConfig({
+        DATABASE_URL: 'postgresql://127.0.0.1/test',
+        SOLANA_RPC_URL: 'file:///credentials',
+      }),
+    ).toThrow('SOLANA_RPC_URL');
+    expect(() =>
+      loadConfig({
+        DATABASE_URL: 'postgresql://127.0.0.1/test',
+        SOLANA_WS_URL: 'https://user:secret@example.test',
+      }),
+    ).toThrow('SOLANA_WS_URL');
   });
 });

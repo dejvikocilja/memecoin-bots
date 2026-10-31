@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 
+import { Secret } from '@memebots/config';
 import type { MarketDiscoveryEvent } from '@memebots/core';
 import { afterEach, describe, expect, it } from 'vitest';
 
@@ -131,10 +132,10 @@ async function setup(handler: (attempt: number) => Reply | Promise<Reply>) {
   const bus = createDiscoveryBus();
   bus.subscribe((event) => events.push(event));
   const config = {
-    ...discoveryConfig({}),
+    ...discoveryConfig(),
     enabled: true,
-    wsUrl: peer.url,
-    rpcUrl: `http://127.0.0.1:${(rpc.address() as AddressInfo).port}`,
+    wsUrl: new Secret(peer.url),
+    rpcUrl: new Secret(`http://127.0.0.1:${(rpc.address() as AddressInfo).port}`),
     reconnectMinMs: 10,
     reconnectMaxMs: 20,
     heartbeatTimeoutMs: 10_000,

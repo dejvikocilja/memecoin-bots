@@ -86,7 +86,9 @@ export class DiscoveryTransport {
     };
     let socket: SocketLike;
     try {
-      socket = this.createSocket(this.config.wsUrl);
+      socket = this.createSocket(
+        typeof this.config.wsUrl === 'string' ? this.config.wsUrl : this.config.wsUrl.reveal(),
+      );
     } catch {
       fail();
       return;

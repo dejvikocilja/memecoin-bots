@@ -29,7 +29,7 @@ function notification(subscription: number, overrides: Record<string, unknown> =
 }
 
 const config = () => ({
-  ...discoveryConfig({}),
+  ...discoveryConfig(),
   enabled: true,
   reconnectMinMs: 20,
   reconnectMaxMs: 30,

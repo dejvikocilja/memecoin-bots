@@ -41,6 +41,9 @@ importers:
 
   apps/api:
     dependencies:
+      '@memebots/config':
+        specifier: workspace:*
+        version: link:../../packages/config
       '@memebots/core':
         specifier: workspace:*
         version: link:../../packages/core
@@ -75,9 +78,14 @@ importers:
 
   apps/engine:
     dependencies:
+      '@memebots/config':
+        specifier: workspace:*
+        version: link:../../packages/config
       '@memebots/core':
         specifier: workspace:*
         version: link:../../packages/core
+
+  packages/config: {}
 
   packages/core: {}
 

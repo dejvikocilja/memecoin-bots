@@ -10,24 +10,31 @@ No signing, wallet loading, order placement or transaction submission is impleme
 
 ## Enable and observe
 
-The listener defaults disabled. `off` engine mode never starts it, and the engine still
-refuses `live` mode. Node 24 and pnpm 10 are required. Supply environment variables in the
-shell (the scaffold does **not** automatically read `.env`):
+The listener defaults disabled. The shared startup loader accepts only `paper` mode;
+`live` and `off` startup values are rejected. The lower-level engine factory's `off`
+mode never starts discovery. Node 24 and pnpm 10 are required. The engine and smoke
+commands read the root `.env` when present, with shell environment taking precedence.
+Use the non-secret demo defaults from `.env.example` (including required `DATABASE_URL`),
+and opt in through the shell:
 
 ```sh
 MARKET_DATA_ENABLED=true BOT_MODE=paper pnpm dev:engine
 ```
 
 `SOLANA_RPC_URL` and `SOLANA_WS_URL` default to Solana's free public mainnet endpoints.
-Only HTTP(S)/WS(S) URLs are accepted. Endpoint values and raw provider errors are never
-logged; URLs may contain credentials. To run a bounded read-only smoke and print counts
+Only HTTP(S)/WS(S) URLs are accepted. Discovery is independent of `BOT_MARKET_DATA`:
+leave that setting at `fixtures` for free public discovery without a Helius key. The shared
+config loader validates and wraps endpoints; they reveal only at the provider boundary.
+All engine/smoke output uses the shared redacting logger. Endpoint values and raw provider
+errors are never logged; URLs may contain credentials. To run a bounded read-only smoke and print counts
 and health without enabling the engine:
 
 ```sh
 pnpm --filter @memebots/engine smoke:discovery --duration-ms 30000
 ```
 
-The smoke explicitly enables discovery, stops after 1–300 seconds, and reports status
+The smoke validates the same startup settings, explicitly enables discovery, stops after
+1–300 seconds, and reports a structured `discovery_smoke_summary` log with status
 before shutdown. Zero observations prove neither source coverage nor a healthy event rate.
 `maxNotificationToPublishMs` measures local receipt to publication, including RPC enrichment
 when needed; it is not chain-to-bus latency.

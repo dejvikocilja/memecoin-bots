@@ -1,3 +1,5 @@
+import type { DiscoveryEndpoint } from './config.js';
+
 /** Deliberately read-only RPC surface: there is no sign/send method. */
 export interface RpcInstruction {
   readonly programIdIndex: number;
@@ -35,11 +37,11 @@ export class RpcRequestError extends Error {
 }
 
 export async function getTransaction(
-  url: string,
+  url: DiscoveryEndpoint,
   signature: string,
   signal: AbortSignal,
 ): Promise<RpcTransaction | null> {
-  const response = await fetch(url, {
+  const response = await fetch(typeof url === 'string' ? url : url.reveal(), {
     method: 'POST',
     signal,
     headers: { 'content-type': 'application/json' },

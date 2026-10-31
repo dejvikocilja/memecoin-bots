@@ -1,7 +1,7 @@
 import type { MarketDiscoveryEvent } from '@memebots/core';
 
 import type { DiscoveryBus } from './bus.js';
-import type { DiscoveryConfig } from './config.js';
+import type { DiscoveryConfig, DiscoveryEndpoint } from './config.js';
 import { decodeLogs, decodeTransaction, needsTransaction, PROGRAMS } from './decoder.js';
 import { getTransaction, RpcRequestError } from './rpc.js';
 import type { RpcTransaction } from './rpc.js';
@@ -42,7 +42,7 @@ interface ListenerOptions {
   readonly log: (message: string) => void;
   readonly createSocket?: (url: string) => SocketLike;
   readonly readTransaction?: (
-    url: string,
+    url: DiscoveryEndpoint,
     signature: string,
     signal: AbortSignal,
   ) => Promise<RpcTransaction | null>;
