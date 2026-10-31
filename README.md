@@ -120,6 +120,14 @@ setup, data limitations, the 200-token capacity test and backup/restore.
 
 See `CONTRIBUTING.md` for how work flows through ProjectBrain.
 
+### Paper broker (BOT-11)
+
+An explicit order-processing CLI now simulates approved fixed-quantity paper orders
+using read-only Jupiter V2 amount quotes, with durable exact accounting, deterministic
+latency/slippage/failure scenarios and restart recovery. The owner demo is explicitly
+marked as a manual paper scenario; no production risk manager or live execution is
+enabled. See [paper execution and evidence limits](docs/paper-broker.md).
+
 ### Token safety evidence (BOT-9)
 
 `pnpm scan:safety <mint> --once` collects bounded read-only classic-SPL RPC facts,

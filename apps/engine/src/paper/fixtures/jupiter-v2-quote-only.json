@@ -1,0 +1,62 @@
+{
+  "source": "https://developers.jup.ag/docs/swap",
+  "capturedDate": "2026-10-31",
+  "purpose": "Public quote-only schema regression fixture; ephemeral IDs, timing and USD fields removed. No transaction execution.",
+  "response": {
+    "swapType": "aggregator",
+    "inAmount": "10000000",
+    "outAmount": "955125",
+    "otherAmountThreshold": "945573",
+    "swapMode": "ExactIn",
+    "slippageBps": 100,
+    "priceImpactPct": "-0.0003657066642239009",
+    "routePlan": [
+      {
+        "percent": 100,
+        "bps": 10000,
+        "swapInfo": {
+          "ammKey": "22HUWiJaTNph96KQTKZVy2wg8KzfCems5nyW7E5H5J6w",
+          "label": "PancakeSwap",
+          "inputMint": "So11111111111111111111111111111111111111112",
+          "outputMint": "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB",
+          "inAmount": "10000000",
+          "outAmount": "956201"
+        }
+      },
+      {
+        "percent": 100,
+        "bps": 10000,
+        "swapInfo": {
+          "ammKey": "FfEJYz4hLLFe4KyNyKYCjvfhMfbtpLH3CXpcPe8nhmfy",
+          "label": "JupLend AMM",
+          "inputMint": "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB",
+          "outputMint": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+          "inAmount": "956201",
+          "outAmount": "955316"
+        }
+      }
+    ],
+    "feeMint": "So11111111111111111111111111111111111111112",
+    "feeBps": 2,
+    "platformFee": {
+      "feeBps": 2,
+      "feeMint": "So11111111111111111111111111111111111111112"
+    },
+    "signatureFeeLamports": 0,
+    "signatureFeePayer": null,
+    "prioritizationFeeLamports": 0,
+    "prioritizationFeePayer": null,
+    "rentFeeLamports": 0,
+    "rentFeePayer": null,
+    "transaction": null,
+    "gasless": false,
+    "jitOptimized": false,
+    "taker": null,
+    "inputMint": "So11111111111111111111111111111111111111112",
+    "outputMint": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+    "router": "metis",
+    "guaranteedPrice": false,
+    "priceImpact": -0.03657066642239009,
+    "mode": "manual"
+  }
+}
