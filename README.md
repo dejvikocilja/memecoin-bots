@@ -106,7 +106,7 @@ setup, data limitations, the 200-token capacity test and backup/restore.
 
 - Never commit `.env`, keypair files or private keys. `.gitignore` covers the usual
   names, and `pnpm check:secrets` and CI catch anything that slips through.
-- The paper runtime rejects wallet keys. Future live-executor key access belongs to BOT-8/20.
+- The paper runtime rejects wallet keys. [Offline wallet provisioning and durable spend authorization](docs/wallets.md) are separate from runtime startup; persisted-key access remains future live-executor work.
 - The API/engine use the shared redacted logger; raw Fastify request/error logs are disabled.
 - Encrypted secret envelopes are authenticated before use; the encryption key stays in a
   separate protected source. See [configuration and secrets](docs/configuration.md).

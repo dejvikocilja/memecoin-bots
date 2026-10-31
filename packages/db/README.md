@@ -20,16 +20,16 @@ All three read `DATABASE_URL` from the root `.env` (or the environment) through 
 
 ## Tables
 
-| Table           | What it holds                                                                                                                                                                                      |
-| --------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `risk_profiles` | The numbers behind each profile: size, stop loss, take-profit ladder, trailing stop, min reward:risk, limits. Position size is capped at 5% by the database itself. Rows are seeded by BOT-10.     |
-| `wallets`       | Hot wallets: label, **public key only**, optional spend cap. Private keys are never stored here.                                                                                                   |
-| `bots`          | Strategy + parameters, risk profile, wallet (one wallet per bot), mode (`off`/`paper`/`live`, default `paper`), paper bankroll. A bot cannot be `live` without a wallet.                           |
-| `tokens`        | Mint, symbol, decimals, and the latest safety scan result.                                                                                                                                         |
-| `positions`     | Open or closed holdings: entry price, size, remaining size, cost, stop, high-water mark for the trailing stop, take-profit steps still to fire, realised PnL. One open position per bot and token. |
-| `orders`        | Every order the risk manager approved or vetoed, with its reason. `client_order_id` makes retries safe.                                                                                            |
-| `fills`         | What actually executed: amounts, SOL and USD prices, fees, slippage, wallet and transaction signature. **Append-only**; it is also the tax record (BOT-2).                                         |
-| `audit_log`     | Every order, veto and config change. **Append-only**.                                                                                                                                              |
+| Table           | What it holds                                                                                                                                                                                            |
+| --------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `risk_profiles` | The numbers behind each profile: size, stop loss, take-profit ladder, trailing stop, min reward:risk, limits. Position size is capped at 5% by the database itself. Rows are seeded by BOT-10.           |
+| `wallets`       | Hot wallets: label, **public key only**, optional spend cap. Private keys are never stored here.                                                                                                         |
+| `bots`          | Strategy + parameters, risk profile, required wallet (exactly one wallet per bot), mode (`off`/`paper`/`live`, default `paper`), paper bankroll. No bot can omit or share a wallet after migration 0008. |
+| `tokens`        | Mint, symbol, decimals, and the latest safety scan result.                                                                                                                                               |
+| `positions`     | Open or closed holdings: entry price, size, remaining size, cost, stop, high-water mark for the trailing stop, take-profit steps still to fire, realised PnL. One open position per bot and token.       |
+| `orders`        | Every order the risk manager approved or vetoed, with its reason. `client_order_id` makes retries safe.                                                                                                  |
+| `fills`         | What actually executed: amounts, SOL and USD prices, fees, slippage, wallet and transaction signature. **Append-only**; it is also the tax record (BOT-2).                                               |
+| `audit_log`     | Every order, veto and config change. **Append-only**.                                                                                                                                                    |
 
 Conventions: raw token amounts and lamports are integers (`numeric(39,0)`, `bigint` in
 TypeScript); prices and fractions are exact decimals (`numeric`, decimal strings in
@@ -59,3 +59,8 @@ logger delivery receipts and nonsecret startup snapshots. Database triggers audi
 order/veto and whitelisted bot, wallet-cap and risk-policy changes atomically.
 See [monitoring and audit](../../docs/architecture/MONITORING.md) for process launch,
 timing guarantees, exact coverage, event naming and rollback limits.
+
+BOT-8 adds public `wallet_spend_state` and durable `wallet_reservations` tables,
+transactional provisioning and fee-inclusive spending services. See
+[wallet operations and the required legacy upgrade flow](../../docs/wallets.md).
+Wallet budgets never reset on restart, and used accounting cannot be discarded by rollback.

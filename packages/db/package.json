@@ -18,7 +18,8 @@
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "migrate": "tsx --env-file-if-exists=../../.env --conditions=@memebots/source src/cli.ts"
+    "migrate": "tsx --env-file-if-exists=../../.env --conditions=@memebots/source src/cli.ts",
+    "wallet": "tsx --env-file-if-exists=../../.env --conditions=@memebots/source src/wallet-management/cli.ts"
   },
   "dependencies": {
     "@memebots/config": "workspace:*",

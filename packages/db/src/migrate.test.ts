@@ -18,6 +18,8 @@ const EXPECTED_TABLES = [
   'runtime_config_snapshots',
   'schema_migrations',
   'tokens',
+  'wallet_reservations',
+  'wallet_spend_state',
   'wallets',
 ];
 
