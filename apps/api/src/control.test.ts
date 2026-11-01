@@ -79,4 +79,41 @@ describe('local control request boundary', () => {
     });
     expect(large.statusCode).toBe(413);
   });
+  it('validates kill switch requests before touching the database (BOT-16)', async () => {
+    const s = server();
+    const boot = await s.inject({ url: '/control/session', headers: base });
+    const headers = {
+      ...base,
+      cookie: boot.headers['set-cookie']!.toString().split(';')[0]!,
+      'content-type': 'application/json',
+      'x-local-csrf': boot.json().csrfToken as string,
+    };
+    const post = (payload: unknown) =>
+      s.inject({
+        method: 'POST',
+        url: '/control/kill-switch',
+        headers,
+        payload: payload as object,
+      });
+    for (const [payload, code] of [
+      [{ action: 'release' }, 'INVALID_CONFIRMATION'],
+      [{ action: 'release', confirmation: 'yes' }, 'INVALID_CONFIRMATION'],
+      [{ action: 'engage', sellAll: 'yes' }, 'INVALID_SELL_ALL'],
+      [{ action: 'engage', confirmation: 'resume buying' }, 'INVALID_FIELDS'],
+      [{ action: 'panic' }, 'INVALID_ACTION'],
+      [{ action: 'engage', extra: 1 }, 'INVALID_FIELDS'],
+    ] as const) {
+      const r = await post(payload);
+      expect(r.statusCode).toBe(400);
+      expect(r.json().code).toBe(code);
+    }
+    // Without the local session and CSRF token nothing reaches the kill switch.
+    const blocked = await s.inject({
+      method: 'POST',
+      url: '/control/kill-switch',
+      headers: { ...base, 'content-type': 'application/json' },
+      payload: { action: 'engage' },
+    });
+    expect(blocked.statusCode).toBe(403);
+  });
 });

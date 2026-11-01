@@ -8,6 +8,7 @@ const EXPECTED_TABLES = [
   'bot_heartbeats',
   'bots',
   'fills',
+  'kill_switch',
   'monitoring_deliveries',
   'monitoring_events',
   'monitoring_health',

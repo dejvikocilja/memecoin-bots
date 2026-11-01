@@ -30,6 +30,7 @@ All three read `DATABASE_URL` from the root `.env` (or the environment) through 
 | `orders`        | Every order the risk manager approved or vetoed, with its reason. `client_order_id` makes retries safe.                                                                                                  |
 | `fills`         | What actually executed: amounts, SOL and USD prices, fees, slippage, wallet and transaction signature. **Append-only**; it is also the tax record (BOT-2).                                               |
 | `audit_log`     | Every order, veto and config change. **Append-only**.                                                                                                                                                    |
+| `kill_switch`   | One row: whether all buying is stopped and whether every position should be sold (BOT-16). Cannot be deleted; changes are audited.                                                                       |
 
 Conventions: raw token amounts and lamports are integers (`numeric(39,0)`, `bigint` in
 TypeScript); prices and fractions are exact decimals (`numeric`, decimal strings in

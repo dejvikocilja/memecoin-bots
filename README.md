@@ -149,6 +149,15 @@ PaperBroker fills. Policies are snapshotted, TP quantities use frozen original
 holdings, and fill receipts drive restart-safe progress. See
 [position exit setup, evidence and limits](docs/position-exits.md).
 
+### Kill switch and losing-streak breaker (BOT-16)
+
+One action stops all buying on every bot; exits keep running. Optionally the exit
+manager also sells every open paper position. Reach it from the dashboard's
+**Emergency stop** panel or `pnpm kill engage [--sell-all]`; release with
+`pnpm kill release --confirm "resume buying"`. A bot whose consecutive losing closes
+reach its profile's limit is paused (no buying, exits continue) until the owner
+resumes it. Both are audited and raise alerts. See [kill switch](docs/kill-switch.md).
+
 ### Local bot controls (BOT-15)
 
 The existing dashboard now lists, creates and edits paper bot configurations with

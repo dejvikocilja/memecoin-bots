@@ -13,17 +13,17 @@ Source: ProjectBrain BOT specification v1, section 7, and ADR-1 (stack and hosti
 
 ## Where each part lives
 
-| Component                               | Package                               | Task                |
-| --------------------------------------- | ------------------------------------- | ------------------- |
-| Shared types (modes, profiles, signals) | `packages/core`                       | BOT-3               |
-| Config and secrets                      | `packages/config`, used by engine/API | BOT-4               |
-| Data model and migrations               | `packages/db`                         | BOT-5               |
-| Market data, safety scanner             | `apps/engine`                         | BOT-6, BOT-7, BOT-9 |
-| Risk manager, exit manager, kill switch | `apps/engine`                         | Risk framework epic |
-| Paper broker, live executor             | `apps/engine`                         | Execution epic      |
-| Strategies (plugins)                    | `apps/engine`                         | Strategies epic     |
-| HTTP API                                | `apps/api`                            | Dashboard epic      |
-| Dashboard                               | `apps/dashboard`                      | Dashboard epic      |
+| Component                               | Package                               | Task                   |
+| --------------------------------------- | ------------------------------------- | ---------------------- |
+| Shared types (modes, profiles, signals) | `packages/core`                       | BOT-3                  |
+| Config and secrets                      | `packages/config`, used by engine/API | BOT-4                  |
+| Data model and migrations               | `packages/db`                         | BOT-5                  |
+| Market data, safety scanner             | `apps/engine`                         | BOT-6, BOT-7, BOT-9    |
+| Risk manager, exit manager, kill switch | `apps/engine`, `packages/db`          | BOT-13, BOT-14, BOT-16 |
+| Paper broker, live executor             | `apps/engine`                         | Execution epic         |
+| Strategies (plugins)                    | `apps/engine`                         | Strategies epic        |
+| HTTP API                                | `apps/api`                            | Dashboard epic         |
+| Dashboard                               | `apps/dashboard`                      | Dashboard epic         |
 
 ## Fixed rules
 

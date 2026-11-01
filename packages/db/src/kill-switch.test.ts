@@ -215,7 +215,8 @@ describe.skipIf(!hasTestDatabase)('BOT-16 kill switch and losing-streak breaker'
       await new Promise((r) => setTimeout(r, 200));
       expect(await activeBuys()).toBeGreaterThan(0);
 
-      let took = Infinity;
+      let took: number | undefined;
+      let failure: unknown;
       try {
         const started = Date.now();
         await engageKillSwitch(drill, { actor: 'owner' });
@@ -223,13 +224,15 @@ describe.skipIf(!hasTestDatabase)('BOT-16 kill switch and losing-streak breaker'
         // From the moment engage returns, no bot holds an open buy and none can create one.
         expect(await activeBuys()).toBe(0);
         await new Promise((r) => setTimeout(r, 200));
-      } finally {
-        stop = true;
-        // Surface any unexpected buyer error (such as a deadlock) as a test failure.
-        const outcomes = await Promise.allSettled(buyers);
-        await drill.end();
-        for (const o of outcomes) if (o.status === 'rejected') throw o.reason;
+      } catch (error) {
+        failure = error;
       }
+      stop = true;
+      // Always stop the buyers, then surface any unexpected buyer error (such as a deadlock).
+      const outcomes = await Promise.allSettled(buyers);
+      await drill.end();
+      if (failure) throw failure;
+      for (const o of outcomes) if (o.status === 'rejected') throw o.reason;
       expect(await activeBuys()).toBe(0);
       expect(refusedAfter).toBeGreaterThan(0);
       expect(took).toBeLessThan(5000);
