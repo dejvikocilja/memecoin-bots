@@ -21,14 +21,12 @@ export interface Engine {
  * Scaffold of the bot engine. Later tasks plug in the market data feed (BOT-6/7),
  * strategies (BOT-19+), the risk manager (BOT-13) and the executors (BOT-16/17).
  *
- * Live mode is refused until the live executor and kill switch exist: there is
+ * Live mode is refused until the live executor exists (the kill switch is BOT-16): there is
  * no code path in this scaffold that can move real funds.
  */
 export function createEngine({ mode, log, discovery }: EngineOptions): Engine {
   if (mode === 'live') {
-    throw new Error(
-      'Live mode is not available yet: the live executor and kill switch are not built.',
-    );
+    throw new Error('Live mode is not available yet: the live executor is not built.');
   }
 
   let running = false;

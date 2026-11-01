@@ -27,7 +27,8 @@
     "scan:safety": "pnpm --filter @memebots/engine scan:safety",
     "monitor": "pnpm --filter @memebots/engine monitor",
     "wallet": "pnpm --filter @memebots/db wallet",
-    "exit": "pnpm --filter @memebots/engine exit"
+    "exit": "pnpm --filter @memebots/engine exit",
+    "kill": "pnpm --filter @memebots/engine kill"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

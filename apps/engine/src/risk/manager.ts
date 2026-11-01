@@ -21,6 +21,7 @@ import type {
   ExecutableQuote,
 } from '@memebots/core';
 import {
+  buyBlockReason,
   ensureRiskDay,
   getRiskProfile,
   reconcileRiskAdmissions,
@@ -268,6 +269,9 @@ export class RiskManager {
       if (!bot) deny('BOT_NOT_FOUND');
       if (bot.strategy !== assignedStrategy) deny('STRATEGY_ASSIGNMENT_MISMATCH');
       if (bot.mode !== 'paper') deny('BOT_NOT_PAPER');
+      // BOT-16: fail fast on the global kill switch before spending free-provider quota on quotes.
+      if ((await buyBlockReason(this.pool, botId)) === 'KILL_SWITCH_ENGAGED')
+        deny('KILL_SWITCH_ENGAGED');
       await reconcileRiskAdmissions(this.pool, botId);
       profile = await getRiskProfile(this.pool, bot.risk_profile_id);
       if (!profile || validateRiskProfile(profileConfig(profile)).length) deny('INVALID_PROFILE');
@@ -417,6 +421,9 @@ export class RiskManager {
           )
             deny('EVIDENCE_UNAVAILABLE');
           if (riskConfigHash(current) !== riskConfigHash(bot)) deny('CONFIG_CHANGED');
+          // BOT-16: re-check under the bot lock; an engage may have committed meanwhile.
+          const blocked = await buyBlockReason(db, botId);
+          if (blocked === 'KILL_SWITCH_ENGAGED') deny(blocked);
           // Shared profile row lock serializes owner edits through admission commit.
           await db.query('SELECT id FROM risk_profiles WHERE id=$1 FOR SHARE', [
             current.risk_profile_id,
@@ -490,6 +497,8 @@ export class RiskManager {
             ).rows[0]?.losses ?? 0;
           if (streak >= latest.losingStreakLimit)
             deny('LOSING_STREAK_LIMIT', { actual: streak, limit: latest.losingStreakLimit });
+          // A bot paused by the breaker stays paused until the owner resumes it.
+          if (blocked === 'BOT_PAUSED') deny('BOT_PAUSED');
           const exposure = await riskExposure(db, botId),
             cash = BigInt(current.paper_bankroll_lamports) - exposure.debit - exposure.feeCash;
           const fee =

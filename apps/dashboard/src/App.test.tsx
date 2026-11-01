@@ -23,13 +23,20 @@ describe('describeHealth', () => {
 
 import { STRATEGY_CATALOG } from '@memebots/core';
 import type { BotControlSnapshot, ControlledBot } from '@memebots/core';
-import { BotForm, errorMessage, formatSol } from './App';
+import { BotForm, KillSwitchPanel, RELEASE_PHRASE, errorMessage, formatSol } from './App';
 const empty: BotControlSnapshot = {
   bots: [],
   wallets: [],
   profiles: [],
   strategies: STRATEGY_CATALOG,
   liveTradingAvailable: false,
+  killSwitch: {
+    engaged: false,
+    sellAll: false,
+    revision: '1',
+    changedAt: '2026-11-01T12:00:00Z',
+    changedBy: 'system',
+  },
 };
 describe('bot control rendering and recovery', () => {
   it('renders honest loading, paper and live limitations', () => {
@@ -63,6 +70,8 @@ describe('bot control rendering and recovery', () => {
       openPositions: 0,
       pendingOrders: 0,
       strategyAvailable: false,
+      pausedAt: null,
+      pauseReason: null,
     } as const satisfies ControlledBot;
     const html = renderToString(
       <BotForm snapshot={empty} bot={bot} busy={false} onSave={() => {}} />,
@@ -89,5 +98,53 @@ describe('bot control rendering and recovery', () => {
     expect(errorMessage('STALE_REVISION')).toContain('Reload');
     expect(errorMessage('WALLET_NOT_AVAILABLE')).toContain('claimed');
     expect(errorMessage('LIVE_EXECUTOR_UNAVAILABLE')).toContain('has not changed');
+  });
+});
+
+describe('kill switch panel (BOT-16)', () => {
+  const off = empty.killSwitch;
+  const noop = () => {};
+  it('offers one-click stop and a stop-and-sell option when off', () => {
+    const html = renderToString(
+      <KillSwitchPanel status={off} busy={false} onEngage={noop} onRelease={noop} />,
+    );
+    expect(html).toContain('Emergency stop');
+    expect(html).toContain('Stop all buying');
+    expect(html).toContain('Stop buying and sell everything');
+    expect(html).toContain('exits keep running');
+    expect(html).not.toContain('Release kill switch');
+  });
+  it('says plainly that no bot can buy, and needs the phrase to release', () => {
+    const html = renderToString(
+      <KillSwitchPanel
+        status={{ ...off, engaged: true, revision: '2', changedBy: 'owner' }}
+        busy={false}
+        onEngage={noop}
+        onRelease={noop}
+      />,
+    );
+    expect(html).toContain('Kill switch on: no bot can buy');
+    expect(html).toContain('Exits keep running');
+    expect(html).toContain('Also sell everything');
+    expect(html).toContain(RELEASE_PHRASE);
+    // The release button starts disabled until the phrase is typed.
+    expect(html).toMatch(/<button disabled="">Release kill switch<\/button>/);
+  });
+  it('shows when every position is being sold', () => {
+    const html = renderToString(
+      <KillSwitchPanel
+        status={{ ...off, engaged: true, sellAll: true, revision: '3' }}
+        busy={false}
+        onEngage={noop}
+        onRelease={noop}
+      />,
+    );
+    expect(html).toContain('Every open paper position is being sold');
+    expect(html).not.toContain('Also sell everything');
+  });
+  it('explains kill-switch and pause refusals', () => {
+    expect(errorMessage('KILL_SWITCH_ENGAGED')).toContain('no bot can buy');
+    expect(errorMessage('BOT_PAUSED')).toContain('losing streak');
+    expect(errorMessage('LIVE_EXECUTOR_UNAVAILABLE')).not.toContain('kill switch');
   });
 });

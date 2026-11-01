@@ -58,6 +58,18 @@ export interface ControlledBot {
   readonly openPositions: number;
   readonly pendingOrders: number;
   readonly strategyAvailable: false;
+  /** Set when the losing-streak breaker paused the bot (BOT-16): no buying, exits keep running. */
+  readonly pausedAt: string | null;
+  readonly pauseReason: 'losing_streak' | null;
+}
+/** Global kill switch (BOT-16). While engaged no bot can buy; selling is never blocked. */
+export interface KillSwitchStatus {
+  readonly engaged: boolean;
+  /** Also close every open paper position through the exit manager. */
+  readonly sellAll: boolean;
+  readonly revision: string;
+  readonly changedAt: string;
+  readonly changedBy: string;
 }
 export interface BotConfiguration {
   readonly name: string;
@@ -75,4 +87,5 @@ export interface BotControlSnapshot {
   readonly profiles: readonly RiskProfile[];
   readonly strategies: readonly StrategyDescriptor[];
   readonly liveTradingAvailable: false;
+  readonly killSwitch: KillSwitchStatus;
 }

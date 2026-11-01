@@ -9,6 +9,7 @@ import type {
   QuoteEvidence,
 } from '@memebots/core';
 import { exitAuthorityValid, exitBuyIsFenced } from './position-exits.js';
+import { buyBlockReason } from './kill-switch.js';
 import { recordAudit } from './audit.js';
 import { withTransaction } from './pool.js';
 import type { Pool, Queryable } from './pool.js';
@@ -177,6 +178,12 @@ export async function registerPaperIntentInTransaction(
   if (await exitBuyIsFenced(db, intent)) throw new Error('POSITION_EXIT_FROZEN');
   const denial = await riskAdmissionFailure(db, intent);
   if (denial) throw new Error(denial);
+  // BOT-16: kill switch / paused bot, after BOT-13's own checks so their codes stay the same.
+  // The database enforces this too; failing here gives a clear code.
+  if (intent.side === 'buy') {
+    const blocked = await buyBlockReason(db, intent.botId);
+    if (blocked) throw new Error(blocked);
+  }
   if (order.status !== 'pending') throw new Error('ORDER_NOT_PENDING');
   const old = await db.query<{ intent: ApprovedOrderIntent }>(
     'SELECT intent FROM paper_execution_intents WHERE order_id=$1',
@@ -282,6 +289,10 @@ export async function preparePaperAttempt(
     if (await exitBuyIsFenced(db, intent)) throw new Error('POSITION_EXIT_FROZEN');
     const denial = await riskAdmissionFailure(db, intent, model);
     if (denial) throw new Error(denial);
+    if (intent.side === 'buy') {
+      const blocked = await buyBlockReason(db, intent.botId);
+      if (blocked) throw new Error(blocked);
+    }
     if (!['pending', 'partially_filled'].includes(order.status))
       throw new Error('ORDER_NOT_EXECUTABLE');
     const active = await db.query(

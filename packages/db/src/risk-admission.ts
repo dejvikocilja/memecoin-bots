@@ -69,6 +69,8 @@ export async function auditRiskBoundaryError(
     'ATTEMPT_LIMIT',
     'LOSING_STREAK_LIMIT',
     'RISK_ORDER_TERMINAL',
+    'KILL_SWITCH_ENGAGED',
+    'BOT_PAUSED',
   ];
   if (
     intent.approval.kind === 'risk_manager' &&

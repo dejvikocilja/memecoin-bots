@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import type { ApprovedOrderIntent, ExecutionResult } from '@memebots/core';
 import { recordAudit } from './audit.js';
 import { withTransaction } from './pool.js';
+import { killSwitchSellAll } from './kill-switch.js';
 import type { Pool, Queryable } from './pool.js';
 
 export interface ExitPolicy {
@@ -295,6 +296,8 @@ export async function decidePositionExit(
     }
     if (!reason && now - p.opened_at.getTime() >= p.policy.maxHoldMinutes * 60000)
       reason = 'time_stop';
+    // BOT-16: kill switch with "sell all" closes the whole remaining position, no quote needed.
+    if (!reason && (await killSwitchSellAll(db))) reason = 'kill_switch';
     const protective = reason !== null;
     let allocations: { step: number; raw: string }[] = [];
     let crossedTP = false;
