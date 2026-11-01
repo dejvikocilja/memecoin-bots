@@ -8,6 +8,7 @@ import type {
   PaperDraws,
   QuoteEvidence,
 } from '@memebots/core';
+import { exitAuthorityValid, exitBuyIsFenced } from './position-exits.js';
 import { recordAudit } from './audit.js';
 import { withTransaction } from './pool.js';
 import type { Pool, Queryable } from './pool.js';
@@ -41,7 +42,7 @@ export function validatePaperIntent(intent: ApprovedOrderIntent): void {
   if (
     !/^[a-zA-Z0-9_.:-]{1,160}$/.test(intent.clientOrderId) ||
     !/^[a-zA-Z0-9_.:-]{1,160}$/.test(intent.approval.reference) ||
-    !['risk_manager', 'manual_paper_scenario'].includes(intent.approval.kind)
+    !['risk_manager', 'exit_manager', 'manual_paper_scenario'].includes(intent.approval.kind)
   )
     throw new Error('INVALID_APPROVAL');
   if (
@@ -141,7 +142,7 @@ export async function lockedPaperOrder(db: Queryable, id: string): Promise<Order
   if (!rows[0]) throw new Error('ORDER_NOT_FOUND');
   return rows[0];
 }
-function matches(order: OrderRow, intent: ApprovedOrderIntent): void {
+function matches(order: OrderRow, intent: ApprovedOrderIntent, requirePaperMode = true): void {
   if (
     order.id !== intent.orderId ||
     order.client_order_id !== intent.clientOrderId ||
@@ -152,7 +153,7 @@ function matches(order: OrderRow, intent: ApprovedOrderIntent): void {
     order.amount_in_raw !== intent.amountInRaw ||
     order.max_slippage_bps !== intent.maxSlippageBps ||
     order.mode !== 'paper' ||
-    order.bot_mode !== 'paper' ||
+    (requirePaperMode && order.bot_mode !== 'paper') ||
     order.veto_reason !== null ||
     order.status === 'vetoed'
   )
@@ -171,6 +172,9 @@ export async function registerPaperIntentInTransaction(
   validatePaperIntent(intent);
   const order = await lockedPaperOrder(db, intent.orderId);
   matches(order, intent);
+  if (order.bot_mode !== 'paper' || !(await exitAuthorityValid(db, intent)))
+    throw new Error('APPROVAL_AUTHORITY_REQUIRED');
+  if (await exitBuyIsFenced(db, intent)) throw new Error('POSITION_EXIT_FROZEN');
   const denial = await riskAdmissionFailure(db, intent);
   if (denial) throw new Error(denial);
   if (order.status !== 'pending') throw new Error('ORDER_NOT_PENDING');
@@ -273,6 +277,9 @@ export async function preparePaperAttempt(
       if (existing.rows[0].order_id !== intent.orderId) throw new Error('IDEMPOTENCY_CONFLICT');
       return toAttempt(existing.rows[0]);
     }
+    if (order.bot_mode !== 'paper' || !(await exitAuthorityValid(db, intent)))
+      throw new Error('APPROVAL_AUTHORITY_REQUIRED');
+    if (await exitBuyIsFenced(db, intent)) throw new Error('POSITION_EXIT_FROZEN');
     const denial = await riskAdmissionFailure(db, intent, model);
     if (denial) throw new Error(denial);
     if (!['pending', 'partially_filled'].includes(order.status))
@@ -384,7 +391,7 @@ export async function settlePaperAttempt(
     if (!/^[A-Z0-9_]{1,80}$/.test(candidate.reason)) throw new Error('INVALID_RESULT_REASON');
     const order = await lockedPaperOrder(db, attempt.orderId);
     const intent = await loadPaperIntent(db, attempt.orderId);
-    matches(order, intent);
+    matches(order, intent, false);
     const previous = (
       await db.query<{ result: ExecutionResult }>(
         'SELECT result FROM paper_execution_results WHERE attempt_id=$1',
@@ -447,7 +454,9 @@ export async function settlePaperAttempt(
     const admissionDenial =
       (await riskAdmissionFailure(db, intent, attempt.model, false)) ??
       (await riskQuoteFailure(db, intent, attempt.inputRaw, evidence, candidate));
-    if (order.status === 'cancelled') candidate = toZero('CANCELLED', 'cancelled');
+    if (order.bot_mode !== 'paper' || !(await exitAuthorityValid(db, intent)))
+      candidate = toZero('EXIT_AUTHORITY_OR_MODE_REVOKED', 'cancelled');
+    else if (order.status === 'cancelled') candidate = toZero('CANCELLED', 'cancelled');
     else if (admissionDenial) {
       candidate = toZero(admissionDenial);
     } else if (now >= intent.expiresAt) candidate = toZero('INTENT_EXPIRED');
@@ -467,6 +476,10 @@ export async function settlePaperAttempt(
         candidate = toZero('QUOTE_EXPIRED_OR_CHAIN_CONTEXT_UNAVAILABLE');
     }
 
+    if (intent.side === 'buy' && pos) {
+      if (await exitBuyIsFenced(db, intent))
+        candidate = toZero('POSITION_EXIT_FROZEN', 'cancelled');
+    }
     const fillCandidate = ['filled', 'partial'].includes(candidate.status);
     const submittedFailure =
       candidate.status === 'failed' && candidate.reason === 'SIMULATED_SUBMITTED_FAILURE';
