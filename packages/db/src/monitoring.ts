@@ -8,9 +8,19 @@ import { withTransaction } from './pool.js';
 export const HEARTBEAT_INTERVAL_MS = 10_000;
 export const MONITOR_INTERVAL_MS = 5_000;
 export const STALE_HEARTBEAT_MS = 40_000;
-export type AlertCategory = 'bot_stalled' | 'rpc_unhealthy' | 'discovery_unhealthy';
+export type AlertCategory =
+  'bot_stalled' | 'rpc_unhealthy' | 'discovery_unhealthy' | 'kill_switch' | 'losing_streak';
 export type AlertCode =
-  'heartbeat_stale' | 'http' | 'rpc' | 'malformed' | 'timeout' | 'transport' | 'unavailable';
+  | 'heartbeat_stale'
+  | 'http'
+  | 'rpc'
+  | 'malformed'
+  | 'timeout'
+  | 'transport'
+  | 'unavailable'
+  | 'engaged'
+  | 'sell_all'
+  | 'streak_limit';
 export interface BotLease {
   readonly botId: string;
   readonly ownerId: string;

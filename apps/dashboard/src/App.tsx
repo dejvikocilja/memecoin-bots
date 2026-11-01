@@ -6,6 +6,7 @@ import type {
   BotControlSnapshot,
   ControlledBot,
   CreateBotRequest,
+  KillSwitchStatus,
 } from '@memebots/core';
 
 type Health =
@@ -34,12 +35,22 @@ export function errorMessage(code: string): string {
     PENDING_ORDERS:
       'Pending orders must finish or be cancelled before changing configuration. Switch the bot off to cancel them.',
     LIVE_EXECUTOR_UNAVAILABLE:
-      'Live trading is unavailable. The live executor and kill switch are not implemented. The bot mode has not changed.',
+      'Live trading is unavailable. The live executor is not implemented. The bot mode has not changed.',
     LEGACY_PARAMETERS_REQUIRE_OFFLINE_REVIEW:
       'Existing strategy parameters must be reviewed offline before changing strategy. Your saved parameters were preserved.',
     INVALID_AMOUNT: 'Enter a whole, non-negative number of lamports (up to 39 digits).',
     LOCAL_SESSION_REQUIRED: 'Your local session expired. Reload the panel to reconnect.',
     CSRF_REJECTED: 'The local session could not be verified. Reload the panel to reconnect.',
+    KILL_SWITCH_ENGAGED:
+      'The kill switch is on, so no bot can buy. Release it before buying again; exits keep running.',
+    BOT_PAUSED:
+      'This bot was paused after a losing streak. Resume it to allow buying again; exits keep running.',
+    BOT_NOT_PAUSED: 'This bot is not paused. Reload to see its current state.',
+    INVALID_CONFIRMATION: 'Type the confirmation phrase exactly to release the kill switch.',
+    KILL_SWITCH_CHANGED:
+      'The kill switch was changed elsewhere. The panel now shows its current state; check it and try again.',
+    KILL_SWITCH_BUSY:
+      'The kill switch could not be set within a few seconds because the database is busy. Try again, or use "pnpm kill engage".',
   };
   return (
     messages[code] ??
@@ -146,6 +157,49 @@ export function App() {
       setBusy(false);
     }
   }
+  async function killSwitchAction(body: Record<string, unknown>, message: string) {
+    setBusy(true);
+    setFailure('');
+    setNotice('');
+    type Change = KillSwitchStatus & { cancelledBuyOrders: number; botsNotYetCleared: number };
+    const send = (csrf: string) => read<Change>('/control/kill-switch', csrf, 'POST', body);
+    try {
+      let result: Change;
+      try {
+        result = await send(token);
+      } catch (error) {
+        // An expired local session must never stop an emergency engage: reconnect, retry once.
+        if (
+          body.action !== 'engage' ||
+          !(error instanceof RequestError) ||
+          !['LOCAL_SESSION_REQUIRED', 'CSRF_REJECTED'].includes(error.code)
+        )
+          throw error;
+        pendingSession = undefined;
+        const session = await openSession();
+        setToken(session.csrfToken);
+        result = await send(session.csrfToken);
+      }
+      const cleared = result.cancelledBuyOrders;
+      setNotice(
+        message +
+          (cleared > 0
+            ? ` ${cleared} open buy order${cleared === 1 ? ' was' : 's were'} cancelled.`
+            : '') +
+          (result.botsNotYetCleared > 0
+            ? ` ${result.botsNotYetCleared} busy bot${result.botsNotYetCleared === 1 ? ' still has' : 's still have'} open buy orders; they cannot execute and are cleared on the next engage.`
+            : ''),
+      );
+    } catch (error) {
+      setFailure(error instanceof Error ? error.message : 'The local API is unavailable.');
+    } finally {
+      // Always show the authoritative state, after success or failure.
+      await read<BotControlSnapshot>('/control')
+        .then((snapshot) => setState({ status: 'ready', snapshot }))
+        .catch(() => {});
+      setBusy(false);
+    }
+  }
   const bot =
     state.status === 'ready' ? state.snapshot.bots.find((b) => b.id === selected) : undefined;
   return (
@@ -219,6 +273,28 @@ export function App() {
         )}
         {state.status === 'ready' && (
           <>
+            <KillSwitchPanel
+              status={state.snapshot.killSwitch}
+              busy={busy}
+              onEngage={(sellAll) =>
+                void killSwitchAction(
+                  { action: 'engage', sellAll },
+                  sellAll
+                    ? 'Kill switch on: all buying stopped. Open paper positions will be sold at the exit manager\'s next check (needs "pnpm exit watch" running).'
+                    : 'Kill switch on: all buying stopped. Exits keep running.',
+                )
+              }
+              onRelease={(confirmation) =>
+                void killSwitchAction(
+                  {
+                    action: 'release',
+                    confirmation,
+                    revision: state.snapshot.killSwitch.revision,
+                  },
+                  'Kill switch released. Bots in paper mode may buy again, except bots paused after a losing streak.',
+                )
+              }
+            />
             <div className="section-heading">
               <div>
                 <h2>
@@ -261,6 +337,7 @@ export function App() {
                       <div className="bot-card-top">
                         <span className="bot-avatar">{b.name.slice(0, 1).toUpperCase()}</span>
                         <span className={`mode-pill ${b.mode}`}>{b.mode.toUpperCase()}</span>
+                        {b.pauseReason && <span className="mode-pill paused">PAUSED</span>}
                       </div>
                       <h3>{b.name}</h3>
                       <p>
@@ -324,6 +401,31 @@ export function App() {
                     )
                   }
                 />
+                {bot?.pauseReason === 'losing_streak' && (
+                  <div className="pause-notice" role="status">
+                    <div>
+                      <h3>Paused after a losing streak</h3>
+                      <p>
+                        This bot hit its risk profile&apos;s limit of consecutive losing trades on{' '}
+                        {bot.pausedAt ? new Date(bot.pausedAt).toLocaleString() : 'an earlier run'}.
+                        It cannot buy; its exits keep running. Resuming resets the streak to zero.
+                      </p>
+                    </div>
+                    <button
+                      disabled={busy}
+                      onClick={() =>
+                        void mutation(
+                          `/control/bots/${bot.id}/resume`,
+                          'POST',
+                          { revision: bot.revision },
+                          'Bot resumed. Its losing streak was reset to zero.',
+                        )
+                      }
+                    >
+                      Resume buying for this bot
+                    </button>
+                  </div>
+                )}
                 {bot && (
                   <div className="mode-controls">
                     <div>
@@ -413,6 +515,95 @@ export function App() {
         />
       )}
     </div>
+  );
+}
+export const RELEASE_PHRASE = 'resume buying';
+export function KillSwitchPanel({
+  status,
+  busy,
+  onEngage,
+  onRelease,
+}: {
+  status: KillSwitchStatus;
+  busy: boolean;
+  onEngage: (sellAll: boolean) => void;
+  onRelease: (confirmation: string) => void;
+}) {
+  const [phrase, setPhrase] = useState('');
+  if (!status.engaged)
+    return (
+      <section className="kill-switch" aria-label="Kill switch">
+        <div>
+          <strong>Emergency stop</strong>
+          <p>
+            Stops all buying on every bot at once. Stops, take-profits and other exits keep running.
+          </p>
+        </div>
+        <div className="kill-switch-buttons">
+          <button className="danger" disabled={busy} onClick={() => onEngage(false)}>
+            Stop all buying
+          </button>
+          <button
+            className="danger secondary"
+            disabled={busy}
+            onClick={() => {
+              if (
+                window.confirm(
+                  'Stop all buying AND sell every open paper position at the next exit check?',
+                )
+              )
+                onEngage(true);
+            }}
+          >
+            Stop buying and sell everything
+          </button>
+        </div>
+      </section>
+    );
+  return (
+    <section className="kill-switch engaged" role="alert" aria-label="Kill switch">
+      <div>
+        <strong>Kill switch on: no bot can buy</strong>
+        <p>
+          {status.sellAll
+            ? 'Open positions of bots in paper mode will be sold at the exit manager\'s next check (needs "pnpm exit watch" running).'
+            : 'Exits keep running. Open positions are still managed.'}{' '}
+          Since {new Date(status.changedAt).toLocaleString()} · by {status.changedBy}
+        </p>
+      </div>
+      <div className="kill-switch-buttons">
+        {!status.sellAll && (
+          <button
+            className="danger secondary"
+            disabled={busy}
+            onClick={() => {
+              if (window.confirm('Also sell every open paper position at the next exit check?'))
+                onEngage(true);
+            }}
+          >
+            Also sell everything
+          </button>
+        )}
+        <label>
+          Type <code>{RELEASE_PHRASE}</code> to release
+          <input
+            value={phrase}
+            onChange={(event) => setPhrase(event.target.value)}
+            autoComplete="off"
+            disabled={busy}
+          />
+        </label>
+        <button
+          disabled={busy || phrase !== RELEASE_PHRASE}
+          onClick={() => {
+            onRelease(phrase);
+            setPhrase('');
+          }}
+        >
+          Release kill switch
+        </button>
+      </div>
+    </section>
   );
 }
 export function BotForm({

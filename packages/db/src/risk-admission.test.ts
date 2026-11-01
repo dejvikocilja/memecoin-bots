@@ -355,6 +355,9 @@ describe.skipIf(!hasTestDatabase)('risk admission and real paper pipeline', () =
     ['UPDATE risk_paper_accounts SET cap_lamports=1', 'PAPER_CAP_EXCEEDED'],
     ['DELETE FROM risk_paper_accounts', 'PAPER_CAP_NOT_CONFIGURED'],
     ['INSERT INTO risk_streaks(bot_id,losses) SELECT id,4 FROM bots', 'LOSING_STREAK_LIMIT'],
+    // BOT-16: global kill switch and a bot paused by the losing-streak breaker.
+    ['UPDATE kill_switch SET engaged=true', 'KILL_SWITCH_ENGAGED'],
+    ["UPDATE bots SET paused_at=clock_timestamp(),pause_reason='losing_streak'", 'BOT_PAUSED'],
     ['UPDATE bots SET paper_bankroll_lamports=1', 'INSUFFICIENT_PAPER_CASH'],
   ])('enforces durable entry limit %s', async (sql, code) => {
     await pool.query(sql);

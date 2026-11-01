@@ -3,6 +3,12 @@ import type { FastifyInstance } from 'fastify';
 import {
   BotControlError,
   botControlSnapshot,
+  controlObject,
+  engageKillSwitch,
+  getKillSwitch,
+  KillSwitchError,
+  releaseKillSwitch,
+  resumeControlledBot,
   createControlledBot,
   getControlledBot,
   listPreparedWallets,
@@ -11,6 +17,9 @@ import {
   updateControlledBot,
 } from '@memebots/db';
 import type { Pool } from '@memebots/db';
+
+/** Typed by the owner to let bots buy again after the kill switch. */
+export const KILL_SWITCH_RELEASE_CONFIRMATION = 'resume buying';
 
 export interface LocalControlOptions {
   readonly pool: Pool;
@@ -68,7 +77,7 @@ export function registerControl(app: FastifyInstance, options: LocalControlOptio
       reply.code(404).send({ code: 'CONTROL_NOT_FOUND' }),
     );
     routes.setErrorHandler((error, _request, reply) => {
-      if (error instanceof BotControlError) {
+      if (error instanceof BotControlError || error instanceof KillSwitchError) {
         void reply.code(error.status).send({ code: error.code });
         return;
       }
@@ -119,5 +128,34 @@ export function registerControl(app: FastifyInstance, options: LocalControlOptio
     routes.post<{ Params: { id: string } }>('/control/bots/:id/mode', async (request) =>
       transitionControlledBot(options.pool, request.params.id, request.body),
     );
+    routes.post<{ Params: { id: string } }>('/control/bots/:id/resume', async (request) =>
+      resumeControlledBot(options.pool, request.params.id, request.body),
+    );
+    // BOT-16 global kill switch. Engaging is one request with no typed confirmation, so it
+    // works in an emergency; releasing (buying again) needs the exact confirmation phrase.
+    routes.get('/control/kill-switch', async () => getKillSwitch(options.pool));
+    routes.post('/control/kill-switch', async (request) => {
+      const v = controlObject(request.body, ['action', 'sellAll', 'revision', 'confirmation']);
+      if (v.revision !== undefined && typeof v.revision !== 'string')
+        throw new KillSwitchError('INVALID_REVISION');
+      const revision = v.revision as string | undefined;
+      if (v.action === 'engage') {
+        if (v.sellAll !== undefined && typeof v.sellAll !== 'boolean')
+          throw new KillSwitchError('INVALID_SELL_ALL');
+        if (v.confirmation !== undefined) throw new KillSwitchError('INVALID_FIELDS');
+        // No revision check: engaging only makes things safer, so a stale panel must still work.
+        return engageKillSwitch(options.pool, { actor: 'owner', sellAll: v.sellAll === true });
+      }
+      if (v.action === 'release') {
+        if (v.sellAll !== undefined) throw new KillSwitchError('INVALID_FIELDS');
+        if (v.confirmation !== KILL_SWITCH_RELEASE_CONFIRMATION)
+          throw new KillSwitchError('INVALID_CONFIRMATION');
+        return releaseKillSwitch(options.pool, {
+          actor: 'owner',
+          ...(revision === undefined ? {} : { revision }),
+        });
+      }
+      throw new KillSwitchError('INVALID_ACTION');
+    });
   });
 }

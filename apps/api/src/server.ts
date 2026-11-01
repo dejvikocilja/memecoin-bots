@@ -46,7 +46,7 @@ export function buildServer({ mode, logger, control }: ServerOptions): FastifyIn
   app.get('/health', async (): Promise<HealthResponse> => ({
     status: 'ok',
     mode,
-    // Turns true only once the live executor and kill switch exist (BOT-15, BOT-17).
+    // Turns true only once the live executor exists; the kill switch is in place (BOT-16).
     liveTradingAvailable: false,
   }));
 

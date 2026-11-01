@@ -7,6 +7,7 @@ import type {
   PreparedWallet,
 } from '@memebots/core';
 import { recordAudit, setAuditActor } from './audit.js';
+import { getKillSwitch, resumePausedBot } from './kill-switch.js';
 import { listRiskProfiles } from './risk-profiles.js';
 import { withTransaction } from './pool.js';
 import type { Pool, Queryable } from './pool.js';
@@ -85,7 +86,7 @@ function configuration(value: Record<string, unknown>, allowLegacy = false): Bot
   };
 }
 const editable = ['name', 'strategy', 'strategyParams', 'riskProfileId'] as const;
-const selection = `b.id,b.name,b.strategy,b.strategy_params AS "strategyParams",b.risk_profile_id AS "riskProfileId",b.wallet_id AS "walletId",b.mode,b.revision::text,b.paper_bankroll_lamports AS "paperBankrollLamports", w.public_key AS "publicKey", w.spend_cap_lamports AS "spendCapLamports", s.observed_balance_lamports AS "observedBalanceLamports", s.balance_observed_at::text AS "balanceObservedAt", (SELECT count(*)::int FROM positions p WHERE p.bot_id=b.id AND p.status='open') AS "openPositions", (SELECT count(*)::int FROM orders o WHERE o.bot_id=b.id AND o.status IN ('pending','submitted','partially_filled')) AS "pendingOrders",false AS "strategyAvailable"`;
+const selection = `b.id,b.name,b.strategy,b.strategy_params AS "strategyParams",b.risk_profile_id AS "riskProfileId",b.wallet_id AS "walletId",b.mode,b.revision::text,b.paper_bankroll_lamports AS "paperBankrollLamports", w.public_key AS "publicKey", w.spend_cap_lamports AS "spendCapLamports", s.observed_balance_lamports AS "observedBalanceLamports", s.balance_observed_at::text AS "balanceObservedAt", (SELECT count(*)::int FROM positions p WHERE p.bot_id=b.id AND p.status='open') AS "openPositions", (SELECT count(*)::int FROM orders o WHERE o.bot_id=b.id AND o.status IN ('pending','submitted','partially_filled')) AS "pendingOrders",false AS "strategyAvailable", b.paused_at::text AS "pausedAt", b.pause_reason AS "pauseReason"`;
 export async function listControlledBots(db: Queryable): Promise<ControlledBot[]> {
   return (
     await db.query<ControlledBot>(
@@ -124,7 +125,15 @@ export async function botControlSnapshot(db: Queryable): Promise<BotControlSnaps
   const bots = await listControlledBots(db),
     wallets = await listPreparedWallets(db),
     profiles = await listControlProfiles(db);
-  return { bots, wallets, profiles, strategies: STRATEGY_CATALOG, liveTradingAvailable: false };
+  const killSwitch = await getKillSwitch(db);
+  return {
+    bots,
+    wallets,
+    profiles,
+    strategies: STRATEGY_CATALOG,
+    liveTradingAvailable: false,
+    killSwitch,
+  };
 }
 async function profile(db: Queryable, id: string): Promise<void> {
   const p = (await listRiskProfiles(db)).find((p) => p.id === id);
@@ -255,4 +264,21 @@ export async function transitionControlledBot(
     return getControlledBot(db, id);
   });
   return result ?? fail('LIVE_EXECUTOR_UNAVAILABLE', 409);
+}
+
+/** Owner resumes a bot the losing-streak breaker paused (BOT-16); resets its streak. */
+export async function resumeControlledBot(
+  pool: Pool,
+  id: string,
+  input: unknown,
+): Promise<ControlledBot> {
+  const v = controlObject(input, ['revision']),
+    revision = controlRevision(v.revision);
+  return withTransaction(pool, async (db) => {
+    await setAuditActor(db, 'owner');
+    const bot = await lockBot(db, id, revision);
+    if (bot.pauseReason === null) fail('BOT_NOT_PAUSED', 409);
+    await resumePausedBot(db, id, 'owner');
+    return getControlledBot(db, id);
+  });
 }
