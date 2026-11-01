@@ -7,5 +7,6 @@ export * from './safety.js';
 export * from './monitoring.js';
 export * from './risk-profiles.js';
 export * from './wallet-management/index.js';
+export * from './bot-control.js';
 export * from './position-exits.js';
 export * from './risk-admission.js';
