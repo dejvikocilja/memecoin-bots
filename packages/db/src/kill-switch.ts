@@ -19,6 +19,8 @@ export type KillSwitchState = KillSwitchStatus;
 export interface KillSwitchChange extends KillSwitchState {
   /** Buy orders cancelled by this change (engage only). */
   readonly cancelledBuyOrders: number;
+  /** Bots whose open buys could not be cancelled yet because their lock was busy. They still cannot execute. */
+  readonly botsNotYetCleared: number;
 }
 
 export type KillSwitchActor = 'owner' | 'system';
@@ -65,38 +67,82 @@ export async function killSwitchSellAll(db: Queryable): Promise<boolean> {
 function checkRevision(expected: string | undefined, actual: string): void {
   if (expected === undefined) return;
   if (!/^[1-9][0-9]{0,18}$/.test(expected)) throw new KillSwitchError('INVALID_REVISION');
-  if (expected !== actual) throw new KillSwitchError('STALE_REVISION', 409);
+  if (expected !== actual) throw new KillSwitchError('KILL_SWITCH_CHANGED', 409);
 }
 
+function lockTimedOut(error: unknown): boolean {
+  return (error as { code?: string } | null)?.code === '55P03';
+}
+
+/** Longest engage waits for the kill-switch row (writers hold it only for one statement). */
+const ENGAGE_LOCK_TIMEOUT = '4s';
+/** Longest engage waits for one bot while cancelling its open buys; a busy bot is skipped. */
+const CANCEL_LOCK_TIMEOUT = '1s';
+
 /**
- * Stops all buying. In one transaction: lock every bot (bot-first lock order), flip the
- * switch, cancel every open buy order across all bots, audit and raise an alert.
- * Calling it again while engaged is safe; it can also turn `sellAll` on.
+ * Stops all buying, in two steps so one busy bot cannot delay the stop for every bot:
+ *
+ * 1. Flip the switch in a short transaction that locks only the kill-switch row. From the
+ *    moment it commits, the database refuses every new buy order and buy attempt, and a
+ *    buy attempt already in flight settles with no fill.
+ * 2. Cancel open buy orders bot by bot, each under that bot's lock (bot-first lock order).
+ *    A bot whose lock is busy is skipped and counted in `botsNotYetCleared`; its open buys
+ *    still cannot execute, and the next engage (or the exit check) clears them.
+ *
+ * Engaging only ever makes things safer, so it takes no revision and is idempotent;
+ * it can also turn `sellAll` on, never off.
  */
 export async function engageKillSwitch(
   pool: Pool,
-  options: { actor: KillSwitchActor; sellAll?: boolean; revision?: string },
+  options: { actor: KillSwitchActor; sellAll?: boolean },
 ): Promise<KillSwitchChange> {
-  return withTransaction(pool, async (db) => {
-    await setAuditActor(db, options.actor);
-    await db.query('SELECT id FROM bots ORDER BY id FOR UPDATE');
-    const before = (await db.query<KillSwitchState>(`${STATE} FOR UPDATE`)).rows[0]!;
-    checkRevision(options.revision, before.revision);
-    const sellAll = before.engaged ? before.sellAll || options.sellAll === true : !!options.sellAll;
-    await db.query('UPDATE kill_switch SET engaged = true, sell_all = $1', [sellAll]);
-    await db.query(
-      `SELECT id FROM orders WHERE side = 'buy' AND status IN ('pending','submitted','partially_filled') ORDER BY id FOR UPDATE`,
-    );
-    const cancelled = await db.query(
-      `UPDATE orders SET status = 'cancelled', failure_reason = 'KILL_SWITCH'
-        WHERE side = 'buy' AND status IN ('pending','submitted','partially_filled')`,
-    );
-    await db.query("SELECT operator_alert('kill_switch', 'global', true, $1)", [
-      sellAll ? 'sell_all' : 'engaged',
-    ]);
-    const state = await getKillSwitch(db);
-    return { ...state, cancelledBuyOrders: cancelled.rowCount ?? 0 };
-  });
+  let state: KillSwitchState;
+  try {
+    state = await withTransaction(pool, async (db) => {
+      await db.query(`SET LOCAL lock_timeout = '${ENGAGE_LOCK_TIMEOUT}'`);
+      await setAuditActor(db, options.actor);
+      const before = (await db.query<KillSwitchState>(`${STATE} FOR UPDATE`)).rows[0]!;
+      const sellAll = before.sellAll || options.sellAll === true;
+      await db.query('UPDATE kill_switch SET engaged = true, sell_all = $1', [sellAll]);
+      await db.query("SELECT operator_alert('kill_switch', 'global', true, 'engaged')");
+      if (sellAll)
+        await db.query("SELECT operator_alert('kill_switch', 'sell_all', true, 'sell_all')");
+      return getKillSwitch(db);
+    });
+  } catch (error) {
+    if (lockTimedOut(error)) throw new KillSwitchError('KILL_SWITCH_BUSY', 503);
+    throw error;
+  }
+  const bots = (
+    await pool.query<{ bot_id: string }>(
+      `SELECT DISTINCT bot_id FROM orders WHERE side = 'buy' AND status IN ('pending','submitted','partially_filled') ORDER BY bot_id`,
+    )
+  ).rows;
+  let cancelled = 0,
+    skipped = 0;
+  for (const { bot_id } of bots) {
+    try {
+      cancelled += await withTransaction(pool, async (db) => {
+        await db.query(`SET LOCAL lock_timeout = '${CANCEL_LOCK_TIMEOUT}'`);
+        await setAuditActor(db, options.actor);
+        await db.query('SELECT id FROM bots WHERE id = $1 FOR UPDATE', [bot_id]);
+        await db.query(
+          `SELECT id FROM orders WHERE bot_id = $1 AND side = 'buy' AND status IN ('pending','submitted','partially_filled') ORDER BY id FOR UPDATE`,
+          [bot_id],
+        );
+        const result = await db.query(
+          `UPDATE orders SET status = 'cancelled', failure_reason = 'KILL_SWITCH'
+            WHERE bot_id = $1 AND side = 'buy' AND status IN ('pending','submitted','partially_filled')`,
+          [bot_id],
+        );
+        return result.rowCount ?? 0;
+      });
+    } catch (error) {
+      if (!lockTimedOut(error)) throw error;
+      skipped++;
+    }
+  }
+  return { ...state, cancelledBuyOrders: cancelled, botsNotYetCleared: skipped };
 }
 
 /** Lets bots buy again. Bots keep their own mode; paused bots stay paused. */
@@ -110,8 +156,9 @@ export async function releaseKillSwitch(
     checkRevision(options.revision, before.revision);
     await db.query('UPDATE kill_switch SET engaged = false, sell_all = false');
     await db.query("SELECT operator_alert('kill_switch', 'global', false, 'engaged')");
+    await db.query("SELECT operator_alert('kill_switch', 'sell_all', false, 'sell_all')");
     const state = await getKillSwitch(db);
-    return { ...state, cancelledBuyOrders: 0 };
+    return { ...state, cancelledBuyOrders: 0, botsNotYetCleared: 0 };
   });
 }
 

@@ -1,4 +1,16 @@
 -- Reverses 0016_kill_switch.
+-- Removing the switch and the pauses lets bots buy again. Record that, and close their
+-- alerts with a 'resolved' event, so the history and the alert feed stay truthful.
+INSERT INTO audit_log(actor, action, entity_type, entity_id, details)
+  SELECT 'system', 'kill_switch.removed_by_rollback', 'kill_switch', 'global',
+         jsonb_build_object('wasEngaged', engaged, 'sellAll', sell_all,
+                            'pausedBots', (SELECT count(*) FROM bots WHERE paused_at IS NOT NULL))
+  FROM kill_switch
+ -- Only when the rollback actually lifts a stop; a routine rollback leaves history untouched.
+ WHERE engaged OR EXISTS (SELECT 1 FROM bots WHERE paused_at IS NOT NULL);
+SELECT operator_alert(category, entity_id, false, code)
+  FROM monitoring_incidents
+ WHERE category IN ('kill_switch', 'losing_streak') AND resolved_at IS NULL;
 DROP TRIGGER risk_streaks_breaker ON risk_streaks;
 DROP FUNCTION losing_streak_breaker();
 DROP FUNCTION operator_alert(text, text, boolean, text);

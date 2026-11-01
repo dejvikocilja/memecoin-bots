@@ -464,7 +464,9 @@ export async function settlePaperAttempt(
     });
     const admissionDenial =
       (await riskAdmissionFailure(db, intent, attempt.model, false)) ??
-      (await riskQuoteFailure(db, intent, attempt.inputRaw, evidence, candidate));
+      (await riskQuoteFailure(db, intent, attempt.inputRaw, evidence, candidate)) ??
+      // BOT-16: a buy in flight when the kill switch engaged or the bot paused fills nothing.
+      (intent.side === 'buy' ? await buyBlockReason(db, intent.botId) : null);
     if (order.bot_mode !== 'paper' || !(await exitAuthorityValid(db, intent)))
       candidate = toZero('EXIT_AUTHORITY_OR_MODE_REVOKED', 'cancelled');
     else if (order.status === 'cancelled') candidate = toZero('CANCELLED', 'cancelled');

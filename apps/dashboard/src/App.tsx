@@ -47,6 +47,10 @@ export function errorMessage(code: string): string {
       'This bot was paused after a losing streak. Resume it to allow buying again; exits keep running.',
     BOT_NOT_PAUSED: 'This bot is not paused. Reload to see its current state.',
     INVALID_CONFIRMATION: 'Type the confirmation phrase exactly to release the kill switch.',
+    KILL_SWITCH_CHANGED:
+      'The kill switch was changed elsewhere. The panel now shows its current state; check it and try again.',
+    KILL_SWITCH_BUSY:
+      'The kill switch could not be set within a few seconds because the database is busy. Try again, or use "pnpm kill engage".',
   };
   return (
     messages[code] ??
@@ -157,24 +161,42 @@ export function App() {
     setBusy(true);
     setFailure('');
     setNotice('');
+    type Change = KillSwitchStatus & { cancelledBuyOrders: number; botsNotYetCleared: number };
+    const send = (csrf: string) => read<Change>('/control/kill-switch', csrf, 'POST', body);
     try {
-      const result = await read<KillSwitchStatus & { cancelledBuyOrders: number }>(
-        '/control/kill-switch',
-        token,
-        'POST',
-        body,
-      );
-      const snapshot = await read<BotControlSnapshot>('/control');
-      setState({ status: 'ready', snapshot });
+      let result: Change;
+      try {
+        result = await send(token);
+      } catch (error) {
+        // An expired local session must never stop an emergency engage: reconnect, retry once.
+        if (
+          body.action !== 'engage' ||
+          !(error instanceof RequestError) ||
+          !['LOCAL_SESSION_REQUIRED', 'CSRF_REJECTED'].includes(error.code)
+        )
+          throw error;
+        pendingSession = undefined;
+        const session = await openSession();
+        setToken(session.csrfToken);
+        result = await send(session.csrfToken);
+      }
+      const cleared = result.cancelledBuyOrders;
       setNotice(
         message +
-          (result.cancelledBuyOrders > 0
-            ? ` ${result.cancelledBuyOrders} open buy order${result.cancelledBuyOrders === 1 ? ' was' : 's were'} cancelled.`
+          (cleared > 0
+            ? ` ${cleared} open buy order${cleared === 1 ? ' was' : 's were'} cancelled.`
+            : '') +
+          (result.botsNotYetCleared > 0
+            ? ` ${result.botsNotYetCleared} busy bot${result.botsNotYetCleared === 1 ? ' still has' : 's still have'} open buy orders; they cannot execute and are cleared on the next engage.`
             : ''),
       );
     } catch (error) {
       setFailure(error instanceof Error ? error.message : 'The local API is unavailable.');
     } finally {
+      // Always show the authoritative state, after success or failure.
+      await read<BotControlSnapshot>('/control')
+        .then((snapshot) => setState({ status: 'ready', snapshot }))
+        .catch(() => {});
       setBusy(false);
     }
   }
@@ -256,9 +278,9 @@ export function App() {
               busy={busy}
               onEngage={(sellAll) =>
                 void killSwitchAction(
-                  { action: 'engage', sellAll, revision: state.snapshot.killSwitch.revision },
+                  { action: 'engage', sellAll },
                   sellAll
-                    ? 'Kill switch on: all buying stopped and every open paper position is being sold.'
+                    ? 'Kill switch on: all buying stopped. Open paper positions will be sold at the exit manager\'s next check (needs "pnpm exit watch" running).'
                     : 'Kill switch on: all buying stopped. Exits keep running.',
                 )
               }
@@ -269,7 +291,7 @@ export function App() {
                     confirmation,
                     revision: state.snapshot.killSwitch.revision,
                   },
-                  'Kill switch released. Bots in paper mode may buy again.',
+                  'Kill switch released. Bots in paper mode may buy again, except bots paused after a losing streak.',
                 )
               }
             />
@@ -544,7 +566,7 @@ export function KillSwitchPanel({
         <strong>Kill switch on: no bot can buy</strong>
         <p>
           {status.sellAll
-            ? 'Every open paper position is being sold by the exit manager.'
+            ? 'Open positions of bots in paper mode will be sold at the exit manager\'s next check (needs "pnpm exit watch" running).'
             : 'Exits keep running. Open positions are still managed.'}{' '}
           Since {new Date(status.changedAt).toLocaleString()} · by {status.changedBy}
         </p>

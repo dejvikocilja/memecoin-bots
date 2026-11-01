@@ -75,12 +75,17 @@ BEGIN
   RETURN NULL;
 END $$;
 
--- The database itself refuses a new live buy order (vetoed records are still allowed).
+-- The database itself refuses a new buy order that could execute. Vetoed, cancelled and
+-- failed records are still allowed (they never trade). Covers inserts in any other status,
+-- reopening a finished order, and moving an order to another bot or to the buy side.
 CREATE FUNCTION buy_order_gate() RETURNS trigger LANGUAGE plpgsql AS $$
 DECLARE reason text;
 BEGIN
-  IF NEW.side = 'buy' AND NEW.status IN ('pending', 'submitted', 'partially_filled')
-     AND (TG_OP = 'INSERT' OR OLD.status NOT IN ('pending', 'submitted', 'partially_filled')) THEN
+  IF NEW.side = 'buy' AND NEW.status NOT IN ('vetoed', 'cancelled', 'failed')
+     AND (TG_OP = 'INSERT'
+          OR OLD.status IN ('vetoed', 'cancelled', 'failed', 'filled')
+          OR OLD.side IS DISTINCT FROM NEW.side
+          OR OLD.bot_id IS DISTINCT FROM NEW.bot_id) THEN
     reason := buy_block_reason(NEW.bot_id);
     IF reason IS NOT NULL THEN
       RAISE EXCEPTION '%', reason USING ERRCODE = 'check_violation';
@@ -88,7 +93,7 @@ BEGIN
   END IF;
   RETURN NEW;
 END $$;
-CREATE TRIGGER orders_buy_gate BEFORE INSERT OR UPDATE OF status ON orders
+CREATE TRIGGER orders_buy_gate BEFORE INSERT OR UPDATE OF status, side, bot_id ON orders
   FOR EACH ROW EXECUTE FUNCTION buy_order_gate();
 
 -- ...and a new execution attempt for a buy.
@@ -144,10 +149,12 @@ BEGIN
   END IF;
 END $$;
 
--- Losing-streak breaker: when a bot's consecutive losing closes reach its profile's
--- limit, pause it, audit and alert. Its pending buys are refused when they next try to
--- execute (BOT-13 records them as LOSING_STREAK_LIMIT vetoes; other buys get BOT_PAUSED).
--- Runs inside the settlement transaction that updated the streak, which holds the bot lock.
+-- Losing-streak breaker: whenever a bot's consecutive losing closes are at or above its
+-- profile's limit and it is not already paused, pause it, audit and alert. That includes a
+-- limit lowered below the current streak. Its pending buys are refused at preparation
+-- (BOT-13 records LOSING_STREAK_LIMIT vetoes; other buys get BOT_PAUSED) and an attempt
+-- already in flight settles with no fill. Runs inside the settlement transaction that
+-- updated the streak, which holds the bot lock.
 CREATE FUNCTION losing_streak_breaker() RETURNS trigger LANGUAGE plpgsql AS $$
 DECLARE limit_n integer; bot record;
 BEGIN
@@ -155,7 +162,6 @@ BEGIN
     FROM bots b JOIN risk_profiles p ON p.id = b.risk_profile_id WHERE b.id = NEW.bot_id FOR UPDATE OF b;
   limit_n := bot.losing_streak_limit;
   IF NEW.losses < limit_n OR bot.paused_at IS NOT NULL THEN RETURN NEW; END IF;
-  IF TG_OP = 'UPDATE' AND OLD.losses >= limit_n THEN RETURN NEW; END IF;
   UPDATE bots SET paused_at = clock_timestamp(), pause_reason = 'losing_streak' WHERE id = NEW.bot_id;
   INSERT INTO audit_log(actor, action, entity_type, entity_id, details)
     VALUES ('system', 'bot.paused', 'bots', NEW.bot_id::text,
@@ -165,3 +171,5 @@ BEGIN
 END $$;
 CREATE TRIGGER risk_streaks_breaker AFTER INSERT OR UPDATE OF losses ON risk_streaks
   FOR EACH ROW EXECUTE FUNCTION losing_streak_breaker();
+-- Bots already at or above their limit when this migration runs are paused now.
+UPDATE risk_streaks SET losses = losses;

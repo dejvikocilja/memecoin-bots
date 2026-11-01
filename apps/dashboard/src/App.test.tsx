@@ -139,7 +139,7 @@ describe('kill switch panel (BOT-16)', () => {
         onRelease={noop}
       />,
     );
-    expect(html).toContain('Every open paper position is being sold');
+    expect(html).toContain('next check (needs');
     expect(html).not.toContain('Also sell everything');
   });
   it('explains kill-switch and pause refusals', () => {

@@ -1,6 +1,9 @@
 import { randomUUID } from 'node:crypto';
 import { afterAll, beforeEach, describe, expect, it } from 'vitest';
-import type { ApprovedOrderIntent } from '@memebots/core';
+import type { ApprovedOrderIntent, PaperModel } from '@memebots/core';
+import { PaperBroker } from '../../../apps/engine/src/paper/broker.js';
+import { normalizeJupiterQuote } from '../../../apps/engine/src/paper/quote.js';
+import type { PaperQuoteProvider, QuoteRequest } from '../../../apps/engine/src/paper/quote.js';
 import {
   buyBlockReason,
   engageKillSwitch,
@@ -12,12 +15,71 @@ import {
 import { claimExitPosition, decidePositionExit } from './position-exits.js';
 import { registerPaperIntent } from './paper-execution.js';
 import { resumeControlledBot, botControlSnapshot } from './bot-control.js';
-import { migrateUp } from './migrate.js';
+import { migrateDown, migrateUp } from './migrate.js';
 import { createPool, withTransaction } from './pool.js';
 import type { Pool } from './pool.js';
 import { createTestPool, hasTestDatabase, resetDatabase, TEST_DATABASE_URL } from './test-db.js';
 
 const MINT = 'DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263';
+const SOL = 'So11111111111111111111111111111111111111112';
+const MODEL: PaperModel = {
+  version: 'paper-v1',
+  minLatencyMs: 0,
+  maxLatencyMs: 0,
+  adverseSlippageBps: 0,
+  failureProbability: 0,
+  failureStage: 'submitted',
+  partialFillBps: 10000,
+  fees: {
+    provenance: 'MODEL',
+    selectedBy: 'kill-test',
+    networkLamports: '0',
+    priorityLamports: '0',
+  },
+};
+/** A quote provider that runs `during` while the buy is in flight, then quotes 1 SOL : 2 tokens. */
+function providerDuring(during: () => Promise<void>): PaperQuoteProvider {
+  return {
+    currentContext: async () => undefined,
+    quote: async (request: QuoteRequest) => {
+      await during();
+      const out = (BigInt(request.inputRaw) * 2n).toString();
+      const inputMint = request.intent.side === 'buy' ? SOL : MINT;
+      const outputMint = request.intent.side === 'buy' ? MINT : SOL;
+      const json = {
+        router: 'metis',
+        transaction: null,
+        inputMint,
+        outputMint,
+        inAmount: request.inputRaw,
+        outAmount: out,
+        otherAmountThreshold: out,
+        swapMode: 'ExactIn',
+        slippageBps: request.intent.maxSlippageBps,
+        gasless: false,
+        taker: null,
+        feeBps: 0,
+        feeMint: inputMint,
+        platformFee: { amount: '0', feeBps: 0, feeMint: inputMint },
+        routePlan: [
+          {
+            bps: 10000,
+            percent: 100,
+            swapInfo: {
+              ammKey: MINT,
+              inputMint,
+              outputMint,
+              inAmount: request.inputRaw,
+              outAmount: out,
+            },
+          },
+        ],
+      };
+      const now = Date.now();
+      return { status: 'available', quote: normalizeJupiterQuote(json, request, now, now, true) };
+    },
+  };
+}
 
 describe.skipIf(!hasTestDatabase)('BOT-16 kill switch and losing-streak breaker', () => {
   const pool = hasTestDatabase ? createTestPool() : undefined!;
@@ -94,7 +156,7 @@ describe.skipIf(!hasTestDatabase)('BOT-16 kill switch and losing-streak breaker'
         maxSlotLag: 20,
         fullyObservedCosts: false,
       },
-      entry: { stopPriceSol: '0.000001', takeProfit: [] },
+      entry: { stopPriceSol: '0.000001', takeProfit: [{ atGain: 0.3, sellFraction: 0.5 }] },
       closeReason: null,
     };
   }
@@ -184,7 +246,9 @@ describe.skipIf(!hasTestDatabase)('BOT-16 kill switch and losing-streak breaker'
       const a = await bot();
       const id = await order(a, 'buy');
       await engageKillSwitch(pool, { actor: 'system' });
-      await expect(registerPaperIntent(pool, buyIntent(a, id))).rejects.toThrow();
+      await expect(registerPaperIntent(pool, buyIntent(a, id))).rejects.toThrow(
+        'KILL_SWITCH_ENGAGED',
+      );
       // Direct attempt writes are refused by the database.
       await expect(
         pool.query(
@@ -241,21 +305,142 @@ describe.skipIf(!hasTestDatabase)('BOT-16 kill switch and losing-streak breaker'
       );
     }, 20000);
 
-    it('engage is idempotent, can add sell-all, and rejects a stale revision', async () => {
+    it('engage is idempotent and can add sell-all; release rejects a stale revision', async () => {
       const first = await engageKillSwitch(pool, { actor: 'owner' });
-      await expect(engageKillSwitch(pool, { actor: 'owner', revision: '1' })).rejects.toThrow(
-        'STALE_REVISION',
-      );
-      const again = await engageKillSwitch(pool, { actor: 'owner', revision: first.revision });
+      const again = await engageKillSwitch(pool, { actor: 'owner' });
       expect(again.revision).toBe(first.revision);
       const sell = await engageKillSwitch(pool, { actor: 'owner', sellAll: true });
       expect(sell).toMatchObject({ engaged: true, sellAll: true });
       expect(await killSwitchSellAll(pool)).toBe(true);
       // Engaging without sellAll never silently turns selling back off.
       expect(await engageKillSwitch(pool, { actor: 'owner' })).toMatchObject({ sellAll: true });
+      // Turning sell-all on is its own alert, so the feed learns positions are being sold.
       expect(await alerts('kill_switch')).toEqual([
         { transition: 'opened', code: 'engaged', entity_id: 'global' },
+        { transition: 'opened', code: 'sell_all', entity_id: 'sell_all' },
       ]);
+      await expect(
+        releaseKillSwitch(pool, { actor: 'owner', revision: first.revision }),
+      ).rejects.toThrow('KILL_SWITCH_CHANGED');
+      await releaseKillSwitch(pool, { actor: 'owner', revision: sell.revision });
+      expect((await alerts('kill_switch')).filter((a) => a.transition === 'resolved')).toHaveLength(
+        2,
+      );
+    });
+
+    it('a bot whose lock is busy does not delay the stop for anyone', async () => {
+      const busy = await bot(),
+        other = await bot();
+      const busyBuy = await order(busy, 'buy'),
+        otherBuy = await order(other, 'buy');
+      const holder = await pool.connect();
+      try {
+        await holder.query('BEGIN');
+        await holder.query('SELECT id FROM bots WHERE id=$1 FOR UPDATE', [busy]);
+        const started = Date.now();
+        const result = await engageKillSwitch(pool, { actor: 'owner' });
+        expect(Date.now() - started).toBeLessThan(5000);
+        expect(result).toMatchObject({
+          engaged: true,
+          cancelledBuyOrders: 1,
+          botsNotYetCleared: 1,
+        });
+        const status = async (id: string) =>
+          (await pool.query('SELECT status FROM orders WHERE id=$1', [id])).rows[0].status;
+        expect(await status(otherBuy)).toBe('cancelled');
+        // The busy bot's buy is still pending but cannot execute, and no new buy can be written.
+        expect(await status(busyBuy)).toBe('pending');
+        expect(await buyBlockReason(pool, other)).toBe('KILL_SWITCH_ENGAGED');
+      } finally {
+        await holder.query('ROLLBACK');
+        holder.release();
+      }
+      // Engaging again once the bot is free clears it.
+      expect(await engageKillSwitch(pool, { actor: 'owner' })).toMatchObject({
+        cancelledBuyOrders: 1,
+        botsNotYetCleared: 0,
+      });
+      expect(await activeBuys()).toBe(0);
+    });
+
+    it.each(['kill switch', 'pause'])(
+      'a buy already in flight fills nothing when the %s lands mid-execution',
+      async (what) => {
+        const a = await bot();
+        const id = await order(a, 'buy');
+        const intent = buyIntent(a, id);
+        await registerPaperIntent(pool, intent);
+        const n = (
+          await pool.query<{ n: number }>(
+            "SELECT losing_streak_limit n FROM risk_profiles WHERE id='balanced'",
+          )
+        ).rows[0]!.n;
+        const during =
+          what === 'kill switch'
+            ? async () => {
+                // Flip the switch only (no order cancellation), like a raw or partial engage.
+                await pool.query('UPDATE kill_switch SET engaged=true');
+              }
+            : async () => {
+                await withTransaction(pool, async (db) => {
+                  await db.query('SELECT id FROM bots WHERE id=$1 FOR UPDATE', [a]);
+                  await db.query('INSERT INTO risk_streaks(bot_id,losses) VALUES($1,$2)', [a, n]);
+                });
+              };
+        const result = await new PaperBroker(pool, providerDuring(during), MODEL).execute(
+          intent,
+          'k',
+        );
+        expect(['filled', 'partial']).not.toContain(result.status);
+        expect(result.reason).toBe(what === 'kill switch' ? 'KILL_SWITCH_ENGAGED' : 'BOT_PAUSED');
+        expect((await pool.query('SELECT * FROM positions WHERE bot_id=$1', [a])).rowCount).toBe(0);
+        expect((await pool.query('SELECT * FROM fills')).rowCount).toBe(0);
+      },
+    );
+
+    it('rollback closes open alerts and records what was removed; re-apply starts clean', async () => {
+      const a = await bot();
+      await engageKillSwitch(pool, { actor: 'owner', sellAll: true });
+      await pool.query(
+        `INSERT INTO risk_streaks(bot_id,losses) SELECT $1, losing_streak_limit FROM risk_profiles WHERE id='balanced'`,
+        [a],
+      );
+      await migrateDown(pool, 1);
+      const open = await pool.query(
+        "SELECT 1 FROM monitoring_incidents WHERE category IN ('kill_switch','losing_streak') AND resolved_at IS NULL",
+      );
+      expect(open.rowCount).toBe(0);
+      const removed = (
+        await pool.query<{ details: { wasEngaged: boolean; pausedBots: number } }>(
+          "SELECT details FROM audit_log WHERE action='kill_switch.removed_by_rollback'",
+        )
+      ).rows;
+      expect(removed).toEqual([{ details: { wasEngaged: true, sellAll: true, pausedBots: 1 } }]);
+      await migrateUp(pool);
+      // The bot still has a losing streak at its limit, so re-applying pauses it again.
+      expect(await buyBlockReason(pool, a)).toBe('BOT_PAUSED');
+      await withTransaction(pool, (db) => resumePausedBot(db, a, 'owner'));
+      // A fresh engage emits a fresh 'opened' alert.
+      const before = (await alerts('kill_switch')).length;
+      await engageKillSwitch(pool, { actor: 'owner' });
+      expect((await alerts('kill_switch')).slice(before)).toEqual([
+        { transition: 'opened', code: 'engaged', entity_id: 'global' },
+      ]);
+    });
+
+    it('refuses a buy inserted as filled or reopened while engaged', async () => {
+      const a = await bot();
+      const done = await order(a, 'buy', 'filled');
+      await engageKillSwitch(pool, { actor: 'owner' });
+      await expect(order(a, 'buy', 'filled')).rejects.toThrow('KILL_SWITCH_ENGAGED');
+      await expect(
+        pool.query("UPDATE orders SET status='pending' WHERE id=$1", [done]),
+      ).rejects.toThrow('KILL_SWITCH_ENGAGED');
+      const p = await position(a);
+      const sell = await order(a, 'sell', 'pending', p);
+      await expect(pool.query("UPDATE orders SET side='buy' WHERE id=$1", [sell])).rejects.toThrow(
+        'KILL_SWITCH_ENGAGED',
+      );
     });
 
     it('sell-all makes the exit manager close the whole position with reason kill_switch', async () => {
@@ -342,6 +527,15 @@ describe.skipIf(!hasTestDatabase)('BOT-16 kill switch and losing-streak breaker'
       // A further loss does not re-pause or re-alert.
       await setStreak(a, n + 1);
       expect(await alerts('losing_streak')).toHaveLength(1);
+    });
+
+    it('pauses when the limit is lowered below the current streak, at the next loss', async () => {
+      const a = await bot();
+      await setStreak(a, 2);
+      await pool.query("UPDATE risk_profiles SET losing_streak_limit=1 WHERE id='balanced'");
+      expect((await pause(a)).pause_reason).toBeNull();
+      await setStreak(a, 3);
+      expect((await pause(a)).pause_reason).toBe('losing_streak');
     });
 
     it('owner resume clears the pause, resets the streak and resolves the alert', async () => {

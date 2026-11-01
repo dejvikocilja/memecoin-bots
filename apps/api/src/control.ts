@@ -143,11 +143,8 @@ export function registerControl(app: FastifyInstance, options: LocalControlOptio
         if (v.sellAll !== undefined && typeof v.sellAll !== 'boolean')
           throw new KillSwitchError('INVALID_SELL_ALL');
         if (v.confirmation !== undefined) throw new KillSwitchError('INVALID_FIELDS');
-        return engageKillSwitch(options.pool, {
-          actor: 'owner',
-          sellAll: v.sellAll === true,
-          ...(revision === undefined ? {} : { revision }),
-        });
+        // No revision check: engaging only makes things safer, so a stale panel must still work.
+        return engageKillSwitch(options.pool, { actor: 'owner', sellAll: v.sellAll === true });
       }
       if (v.action === 'release') {
         if (v.sellAll !== undefined) throw new KillSwitchError('INVALID_FIELDS');
